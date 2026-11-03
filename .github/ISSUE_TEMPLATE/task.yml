@@ -1,0 +1,34 @@
+name: Task
+description: Một việc cần làm trong milestone
+labels: ["type:feature"]
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: Mục tiêu
+      description: Việc này làm gì và vì sao
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Phạm vi
+      description: Cần làm những gì
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      value: |
+        - [ ]
+    validations:
+      required: true
+  - type: input
+    id: deps
+    attributes:
+      label: Phụ thuộc
+      placeholder: "Blocked by #"
+  - type: input
+    id: docs
+    attributes:
+      label: Tài liệu liên quan
+      placeholder: docs/protocol.md

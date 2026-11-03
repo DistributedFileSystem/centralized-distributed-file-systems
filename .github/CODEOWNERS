@@ -1,0 +1,21 @@
+# Bỏ dấu # đầu dòng và thay @<role> bằng GitHub username khi team chốt role.
+# Lead / Metadata core
+# *                                   @<lead>
+# /docs/architecture.md               @<lead>
+# /docs/data-model.md                 @<lead>
+# /src/Dfs.MetadataServer/            @<lead>
+# /src/Dfs.Consensus/                 @<lead>
+# Security
+# /docs/rbac.md                       @<security>
+# Data Server + DevOps
+# /src/Dfs.DataServer/                @<dataserver-devops>
+# /deploy/                            @<dataserver-devops>
+# /.github/workflows/                 @<dataserver-devops>
+# /docs/deployment.md                 @<dataserver-devops>
+# Client SDK
+# /docs/protocol.md                   @<client-sdk>
+# /src/Dfs.Shared/                    @<client-sdk>
+# /src/Dfs.Client.Core/               @<client-sdk>
+# /src/Dfs.Fakes/                     @<client-sdk>
+# UI
+# /src/Dfs.Client.Desktop/            @<ui>

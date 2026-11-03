@@ -1,0 +1,15 @@
+# .NET
+bin/
+obj/
+*.user
+.vs/
+.idea/
+# Env và secret
+.env
+deploy/env/*.env
+!deploy/env/*.example.env
+# Data local
+data/
+*.db
+*.db-wal
+*.db-shm

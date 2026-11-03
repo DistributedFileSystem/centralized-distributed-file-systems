@@ -1,0 +1,32 @@
+name: Bug
+description: Báo lỗi
+labels: ["type:bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: Lỗi gì
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Các bước tái hiện
+      value: |
+        1.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Kết quả mong đợi
+  - type: input
+    id: env
+    attributes:
+      label: Môi trường
+      placeholder: "1 máy / LAN, Windows / Linux, commit"
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log (kèm requestId nếu có)
+      render: text

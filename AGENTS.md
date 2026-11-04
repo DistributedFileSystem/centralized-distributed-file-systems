@@ -9,14 +9,14 @@ Giao tiếp với người dùng bằng **tiếng Anh**; docs trong repo viết 
 ## Trạng thái hiện tại (2026-11-04)
 
 - Repo có docs + quy trình, **chưa có code**. Branch: `main`, `develop`.
-- Default branch = `develop`. Ruleset bảo vệ `main` và `develop` đã bật (PR + 1 approval + required check `markdown-links`); đang kiểm tra bằng test PR `feature/0-test-branch-rules` → `develop`.
-- Labels, milestones, 39 issues và GitHub Project **chưa được tạo**: chạy `scripts/setup_github.py` (cần `gh auth refresh -s project`).
-- Session cloud ghi được lên repo qua **GitHub MCP connector** (tạo branch, commit, PR); `gh` CLI trong session cloud vẫn bị chặn, nên việc cần `gh` (vd. `scripts/setup_github.py`) chạy trên máy người dùng.
+- Default branch = `develop`. Ruleset bảo vệ `main` và `develop` (PR + 1 approval + required check `markdown-links`) đã được kiểm tra bằng PR #1; owner có thể bypass khi cần.
+- Labels, milestones, issues và GitHub Project **chưa được tạo**. Team sẽ thêm thành viên trước, rồi chia task chi tiết cho từng người bằng GitHub Issues + GitHub Project. Backlog dự kiến cũ (39 issues) vẫn còn trong git history: `git show 1a214f4:scripts/backlog.json`.
+- Session cloud ghi được lên repo qua **GitHub MCP connector** (tạo branch, commit, PR); `gh` CLI trong session cloud vẫn bị chặn, nên việc cần `gh` chạy trên máy người dùng.
 
 ## Việc tiếp theo (theo thứ tự)
 
-1. Đảm bảo `main` và `develop` đã lên GitHub; default branch = `develop`; bật branch protection (xem `CONTRIBUTING.md`).
-2. `python scripts/setup_github.py --dry-run` rồi chạy thật → labels, milestones M1–M6 + S1–S4, 39 issues, Project "DFS - Task board". Sau đó chỉnh cột Status trên board: Backlog, Ready, In progress, In review, Done.
+1. Thêm thành viên vào organization / repo.
+2. Tạo GitHub Project và issues, chia task chi tiết cho từng người (cột Status gợi ý: Backlog, Ready, In progress, In review, Done).
 3. Milestone **M1**: solution skeleton (`Dfs.sln`, các project trong `docs/architecture.md`, `global.json` pin .NET 10), CI build .NET, Dockerfile + `deploy/docker-compose.yml`, chốt `docs/protocol.md` v1, `Dfs.Shared` framing + `Hello`.
 4. Điền tên thành viên và người điều phối vào README và slide team.
 
@@ -41,7 +41,7 @@ Xem `docs/architecture.md` mục "Design rules": command cho mọi thay đổi m
 
 ## Tài liệu
 
-- Repo: `README.md`, `CONTRIBUTING.md`, `docs/` (requirements, architecture, protocol, rbac, data-model, flows, deployment, development, test-plan, adr/), `scripts/` (backlog.json + setup_github.py).
+- Repo: `README.md`, `CONTRIBUTING.md`, `docs/` (requirements, architecture, protocol, rbac, data-model, flows, deployment, development, test-plan, adr/).
 - Plan doc (Claude Docs): https://claude.ai/artifact/GBrdVhj1nsX9iWXrpyj36v
 - Slide kickoff (Claude Slides, 18 slide, nền sáng, stage 2 chi tiết): https://claude.ai/artifact/AhGVSV2vtYevkHuy56Mcj7
 

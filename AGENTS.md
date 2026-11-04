@@ -8,17 +8,18 @@ Giao tiếp với người dùng bằng **tiếng Anh**; docs trong repo viết 
 
 ## Trạng thái hiện tại (2026-11-04)
 
-- Repo có docs + quy trình, **chưa có code**. Branch: `main`, `develop`.
-- Default branch = `develop`. Ruleset bảo vệ `main` và `develop` (PR + 1 approval + required check `markdown-links`) đã được kiểm tra bằng PR #1; owner có thể bypass khi cần.
-- Labels, milestones, issues và GitHub Project **chưa được tạo**. Team sẽ thêm thành viên trước, rồi chia task chi tiết cho từng người bằng GitHub Issues + GitHub Project. Backlog dự kiến cũ (39 issues) vẫn còn trong git history: `git show 1a214f4:scripts/backlog.json`.
-- Session cloud ghi được lên repo qua **GitHub MCP connector** (tạo branch, commit, PR); `gh` CLI trong session cloud vẫn bị chặn, nên việc cần `gh` chạy trên máy người dùng.
+- Repo có docs + quy trình, **chưa có code**. Branch: `main`, `develop` (default).
+- Ruleset "Protect main and develop": PR + 1 approval + required check `markdown-links`, chặn force push và xoá branch; đã kiểm tra bằng PR #1.
+- **Kế hoạch 4 tuần đã được duyệt**: [docs/plan.md](docs/plan.md) (role, contract, timeline, 70 issue có assignee, acceptance criteria và phụ thuộc).
+- Labels, milestones, issues và GitHub Project **chưa được tạo**; tạo từ `docs/plan.md`.
+- Session cloud ghi được lên repo qua **GitHub MCP connector** (tạo branch, commit, PR); `gh` CLI trong session cloud bị chặn, nên việc cần `gh` (label, milestone, project, ruleset) chạy trên máy người dùng.
 
 ## Việc tiếp theo (theo thứ tự)
 
-1. Thêm thành viên vào organization / repo.
-2. Tạo GitHub Project và issues, chia task chi tiết cho từng người (cột Status gợi ý: Backlog, Ready, In progress, In review, Done).
-3. Milestone **M1**: solution skeleton (`Dfs.sln`, các project trong `docs/architecture.md`, `global.json` pin .NET 10), CI build .NET, Dockerfile + `deploy/docker-compose.yml`, chốt `docs/protocol.md` v1, `Dfs.Shared` framing + `Hello`.
-4. Điền tên thành viên và người điều phối vào README và slide team.
+1. Thêm **Repository admin** vào bypass list của ruleset (chế độ For pull requests only) để Tân merge pull request của chính mình.
+2. Tạo labels, milestones (M1–M3, S1–S3, có hạn) và 70 issues theo `docs/plan.md`, assign đúng người, điền "Blocked by #".
+3. Tạo GitHub Project "DFS - Task board", cột Status: Backlog, Ready, In progress, Testing, In review, Done; issue M1 vào Ready.
+4. Bắt đầu **M1** (hạn 05/11): M1-01 solution skeleton + CI phải merge trong ngày 04/11.
 
 ## Quyết định đã chốt (đừng đổi nếu người dùng không yêu cầu)
 
@@ -28,12 +29,14 @@ Giao tiếp với người dùng bằng **tiếng Anh**; docs trong repo viết 
 | Transport | **Raw TCP**, frame: length 4 B big-endian + type 1 B + payload (JSON); `Hello(protocolVersion)` đầu mỗi connection | `docs/protocol.md` |
 | Auth | User login (PBKDF2-SHA256), session token phía server, **RBAC**: system role + group + grant theo thư mục/file, kế thừa xuống cây; admin panel | ADR-0004, `docs/rbac.md` |
 | File | **Write-once versions**, `baseVersion` → `Conflict` (optimistic concurrency), giữ N version, GC chunk | ADR-0002 |
-| Metadata store | **SQLite + op log + snapshot**; mọi thay đổi là command deterministic qua một store boundary | ADR-0003; để stage 2 chỉ thay op log bằng Raft |
+| Metadata store | **SQLite + op log + snapshot**; mọi thay đổi là command deterministic qua một store boundary (`IMetadataStore`) | ADR-0003; để stage 2 chỉ thay op log bằng Raft |
 | Stack | **C#, .NET 10 LTS**, **Avalonia** (Windows + Linux), servers là console app chạy trong **Docker** | Team dùng Windows + Linux |
-| Stage 1 | 1 Metadata Server, 5 Data Server (mỗi laptop một), **1 bản sao/chunk**, chunk location lưu dạng list | MVP để nộp và bảo vệ |
-| Stage 2 | 3 Metadata node **Raft** (DotNext.Net.Cluster, chốt ở ADR-0005), 3 bản sao qua pipeline `ForwardChunk`, read fallback, repair, TLS tuỳ chọn | Chỉ bắt đầu sau tag `v1.0.0` |
-| Deployment | Cùng image; env: `NODE_ROLE`, `NODE_ID`, `LISTEN_PORT`, `ADVERTISE_HOST` (IP LAN, không dùng IP Docker), `METADATA_ENDPOINTS` (list), `DATA_DIR`, `TOKEN_KEY` | `docs/deployment.md` |
-| Team process | **Gitflow** (`feature/<issue>-<tên>` → `develop` bằng PR, `release/*` → `main` + tag). **Không chia role cố định**: 1 người điều phối, tự nhận task, ai cũng review được (1 approve) | `CONTRIBUTING.md`, README |
+| Stage 1 | 1 Metadata Server, 5 Data Server (mỗi laptop một), **1 bản sao/chunk**, chunk location lưu dạng list | MVP, tuần 1, tag `v1.0.0` |
+| Stage 2 | 3 Metadata node **Raft** (DotNext.Net.Cluster, chốt ở ADR-0005), 3 bản sao qua pipeline `ForwardChunk`, read fallback, repair, TLS | Tuần 2–4: S1 Raft, S2 Replication, S3 Self-healing |
+| Deployment | Cùng Dockerfile; env: `NODE_ROLE`, `NODE_ID`, `LISTEN_PORT`, `ADVERTISE_HOST` (IP LAN), `METADATA_ENDPOINTS` (list), `DATA_DIR`, `TOKEN_KEY`; **không có CD**, image build tại máy bằng `--build` | `docs/deployment.md` |
+| Team | Tân lead + core (contract, store core, Raft, CI); Nhất security; Cường data path; Nguyên GUI core; Quân test độc lập + GUI edge | `docs/plan.md` |
+| Process | **Gitflow** với `feature/*`, `test/*`, `design/*`, `release/*`, `hotfix/*`; Quân test trước, Tân approve; Tân tự merge PR của mình bằng admin bypass chỉ khi CI xanh và Quân đã "Test passed"; chỉ Tân sửa contract | `CONTRIBUTING.md` |
+| CI | Mọi PR: build, unit test, acceptance test trên cluster Compose, `markdown-links` | `CONTRIBUTING.md` |
 
 ## Design rules (bắt buộc khi viết code)
 
@@ -41,12 +44,13 @@ Xem `docs/architecture.md` mục "Design rules": command cho mọi thay đổi m
 
 ## Tài liệu
 
-- Repo: `README.md`, `CONTRIBUTING.md`, `docs/` (requirements, architecture, protocol, rbac, data-model, flows, deployment, development, test-plan, adr/).
+- Repo: `README.md`, `CONTRIBUTING.md`, `docs/` (plan, requirements, architecture, protocol, rbac, data-model, flows, deployment, development, test-plan, adr/).
 - Plan doc (Claude Docs): https://claude.ai/artifact/GBrdVhj1nsX9iWXrpyj36v
-- Slide kickoff (Claude Slides, 18 slide, nền sáng, stage 2 chi tiết): https://claude.ai/artifact/AhGVSV2vtYevkHuy56Mcj7
+- Slide kickoff (Claude Slides): https://claude.ai/artifact/AhGVSV2vtYevkHuy56Mcj7
 
 ## Lưu ý cho AI
 
 - Lập kế hoạch và chờ người dùng duyệt trước khi sửa file, chạy lệnh có thay đổi, push, tạo issue.
 - Coding conventions do docs của project quyết định; không tự thêm convention.
-- Đổi `protocol.md`, `rbac.md`, `data-model.md` phải đổi trong cùng PR với code và báo team.
+- Chỉ Tân sửa contract (`protocol.md`, `rbac.md`, message types, interface); đổi `data-model.md` trong cùng PR với code.
+- Không sửa `tests/Dfs.AcceptanceTests` khi làm feature của dev.

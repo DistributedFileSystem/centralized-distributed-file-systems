@@ -27,7 +27,8 @@
 
 | Tài liệu | Nội dung |
 | --- | --- |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | Quy trình Gitflow, branch, pull request, review |
+| [docs/plan.md](docs/plan.md) | Kế hoạch 4 tuần: role, contract, milestone, issue của từng người |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Quy trình Gitflow, branch, pull request, review, test, CI |
 | [docs/requirements.md](docs/requirements.md) | Yêu cầu chức năng và phi chức năng |
 | [docs/architecture.md](docs/architecture.md) | Kiến trúc stage 1 và stage 2, design rules |
 | [docs/protocol.md](docs/protocol.md) | Frame format, message, error code, token |
@@ -43,20 +44,29 @@
 
 ```bash
 # 1 máy: 1 Metadata Server + 5 Data Server
-docker compose -f deploy/docker-compose.yml up
+docker compose -f deploy/docker-compose.yml up --build
 
 # 5 laptop: mỗi laptop một file env riêng
-docker compose -f deploy/node.yml --env-file deploy/env/laptop1.env up
+docker compose -f deploy/node.yml --env-file deploy/env/laptop1.env up --build
 ```
 
 ## Team
 
-5 thành viên: _(điền tên + GitHub username)_. Điều phối: _(TBD)_.
+| Role | Thành viên | GitHub |
+| --- | --- | --- |
+| Lead + core (owner) | Tân | `tankhangkm12` |
+| Backend: security | Nhất | `duynhat1504` |
+| Backend: data path | Cường | `khongpc-ptit` |
+| GUI core | Nguyên | `khanhnguyn2709` |
+| Test + GUI edge | Quân | `dvquan0516` |
 
-Không chia role cố định:
+## Timeline
 
-1. **Một người điều phối**: cập nhật board, tạo release và merge vào `main` trước khi nộp.
-2. **Tự nhận task trên board**: làm xong task này thì nhận task tiếp theo. Có thể làm nhiều task cùng mảng nếu quen, nhưng không ai "sở hữu" mảng nào.
-3. **Ai cũng review được cho ai**: mỗi pull request cần 1 approve của bất kỳ thành viên nào khác.
+| Tuần | Ngày | Milestone | Tag |
+| --- | --- | --- | --- |
+| 1 | 04 – 10/11/2026 | M1, M2, M3 (stage 1) | `v1.0.0` |
+| 2 | 11 – 17/11 | S1 Raft | `v1.1.0` |
+| 3 | 18 – 24/11 | S2 Replication | `v1.2.0` |
+| 4 | 25/11 – 01/12 | S3 Self-healing + final | `v2.0.0` |
 
-Theo dõi công việc trên **GitHub Project** của organization. Label `area:*` trên issue chỉ để lọc, không phải phân công.
+Task chi tiết của từng người: [docs/plan.md](docs/plan.md). Theo dõi trên **GitHub Project** của organization.

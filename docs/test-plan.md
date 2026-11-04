@@ -2,6 +2,13 @@
 
 > File này trở thành **test report** ở cuối mỗi stage (thêm cột kết quả).
 
+## Cách test
+
+- Test do **Quân** viết **độc lập** với dev: từ contract (`docs/protocol.md`, `docs/rbac.md`, `docs/flows.md`) và acceptance criteria của issue, không dựa vào code của dev.
+- Acceptance test nằm trong `tests/Dfs.AcceptanceTests`, chỉ tham chiếu `Dfs.Shared`, nói chuyện với hệ thống qua TCP như client thật (black-box).
+- Test viết song song với code trên branch `test/*`, merge ở dạng pending, bật khi feature sẵn sàng; feature chỉ merge khi test pass.
+- Màn hình GUI do Quân làm được Nguyên test bằng GUI checklist.
+
 ## Phạm vi
 
 | Loại | Nội dung |

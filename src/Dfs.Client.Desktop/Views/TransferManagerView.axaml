@@ -1,0 +1,112 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:Dfs.Client.Desktop.ViewModels"
+             xmlns:shared="using:Dfs.Shared"
+             mc:Ignorable="d" d:DesignWidth="900" d:DesignHeight="600"
+             x:Class="Dfs.Client.Desktop.Views.TransferManagerView"
+             x:DataType="vm:TransferManagerViewModel">
+
+    <Grid RowDefinitions="Auto,*,Auto" Background="#F8F9FA">
+        <!-- Header & Action Bar -->
+        <Border Grid.Row="0" Background="White" BorderBrush="#DEE2E6" BorderThickness="0,0,0,1" Padding="16,12">
+            <Grid ColumnDefinitions="*,Auto">
+                <StackPanel Grid.Column="0" Spacing="2">
+                    <TextBlock Text="HÀNG ĐỢI TRUYỀN TẢI DỮ LIỆU" FontSize="16" FontWeight="Bold" Foreground="#212529"/>
+                    <TextBlock Text="{Binding SummaryText}" FontSize="12" Foreground="#6C757D"/>
+                </StackPanel>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                    <Button Content="🔄 Làm mới" Command="{Binding LoadTransfersCommand}" Padding="12,6"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- Transfer Cards List -->
+        <ScrollViewer Grid.Row="1" Padding="16">
+            <ItemsControl ItemsSource="{Binding Transfers}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate DataType="shared:TransferProgress">
+                        <Border Background="White"
+                                BorderBrush="#DEE2E6"
+                                BorderThickness="1"
+                                CornerRadius="6"
+                                Padding="16"
+                                Margin="0,0,0,12">
+                            <StackPanel Spacing="8">
+                                <!-- Top Row: Icon, File Name, Cancel Button -->
+                                <Grid ColumnDefinitions="Auto,*,Auto">
+                                    <Border Grid.Column="0"
+                                            Background="#EBF3FC"
+                                            CornerRadius="4"
+                                            Padding="8,4"
+                                            Margin="0,0,10,0">
+                                        <TextBlock Text="{Binding Direction}"
+                                                   FontWeight="Bold"
+                                                   FontSize="12"
+                                                   Foreground="#0066CC"/>
+                                    </Border>
+
+                                    <StackPanel Grid.Column="1" Spacing="2">
+                                        <TextBlock Text="{Binding FileName}" FontWeight="Bold" FontSize="14" Foreground="#212529"/>
+                                        <TextBlock Text="{Binding RemotePath, StringFormat='Đích: {0}'}" FontSize="12" Foreground="#6C757D"/>
+                                    </StackPanel>
+
+                                    <Button Grid.Column="2"
+                                            Content="✕ Hủy"
+                                            Padding="10,4"
+                                            FontSize="12"
+                                            Foreground="#DC3545"/>
+                                </Grid>
+
+                                <!-- Progress Bar -->
+                                <ProgressBar Value="{Binding Percent}"
+                                             Minimum="0"
+                                             Maximum="100"
+                                             Height="8"
+                                             Foreground="#0066CC"
+                                             Background="#E9ECEF"
+                                             CornerRadius="4"/>
+
+                                <!-- Metrics Row -->
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="16">
+                                        <TextBlock Text="{Binding FormattedProgress}" FontSize="12" FontWeight="Medium" Foreground="#495057"/>
+                                        <TextBlock Text="{Binding FormattedSpeed, StringFormat='Tốc độ: {0}'}" FontSize="12" Foreground="#0066CC"/>
+                                        <TextBlock Text="{Binding Status, StringFormat='Trạng thái: {0}'}" FontSize="12" Foreground="#28A745"/>
+                                    </StackPanel>
+                                </Grid>
+
+                                <!-- Chunk distribution details (if available) -->
+                                <Expander Header="Xem phân bố các khối (4 MB Chunks) trên 5 Data Server"
+                                          IsExpanded="False"
+                                          FontSize="11"
+                                          Foreground="#6C757D"
+                                          IsVisible="{Binding Chunks, Converter={x:Static ObjectConverters.IsNotNull}}">
+                                    <ItemsControl ItemsSource="{Binding Chunks}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate DataType="shared:ChunkLocation">
+                                                <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,3">
+                                                    <TextBlock Grid.Column="0" Text="{Binding Index, StringFormat='Khối #{0}'}" FontWeight="SemiBold" Width="70" Foreground="#495057"/>
+                                                    <TextBlock Grid.Column="1" Text="{Binding ServerAddress, StringFormat='-> Data Server: {0}'}" Foreground="#0066CC"/>
+                                                    <TextBlock Grid.Column="2" Text="{Binding Status}" Foreground="#28A745" FontWeight="Medium"/>
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </Expander>
+                            </StackPanel>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+
+        <!-- Status footer -->
+        <Border Grid.Row="2" Background="White" BorderBrush="#DEE2E6" BorderThickness="0,1,0,0" Padding="12,6">
+            <TextBlock Text="Đường truyền dữ liệu: Kết nối trực tiếp song song tới các Data Server (Direct Data Path with Signed Token)"
+                       FontSize="11"
+                       Foreground="#6C757D"/>
+        </Border>
+    </Grid>
+</UserControl>

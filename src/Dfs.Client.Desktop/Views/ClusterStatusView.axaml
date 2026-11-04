@@ -1,0 +1,101 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:Dfs.Client.Desktop.ViewModels"
+             xmlns:shared="using:Dfs.Shared"
+             mc:Ignorable="d" d:DesignWidth="950" d:DesignHeight="600"
+             x:Class="Dfs.Client.Desktop.Views.ClusterStatusView"
+             x:DataType="vm:ClusterStatusViewModel">
+
+    <Grid RowDefinitions="Auto,Auto,*,Auto" Background="#F8F9FA">
+        <!-- Header -->
+        <Border Grid.Row="0" Background="White" BorderBrush="#DEE2E6" BorderThickness="0,0,0,1" Padding="16,12">
+            <Grid ColumnDefinitions="*,Auto">
+                <StackPanel Grid.Column="0" Spacing="2">
+                    <TextBlock Text="GIÁM SÁT HẠ TẦNG CỤM LƯU TRỮ (CLUSTER STATUS)" FontSize="16" FontWeight="Bold" Foreground="#212529"/>
+                    <TextBlock Text="Theo dõi thời gian thực 5 laptop Data Server và Metadata Server trong mạng LAN" FontSize="12" Foreground="#6C757D"/>
+                </StackPanel>
+                <Button Grid.Column="1" Content="🔄 Quét lại nhịp tim" Command="{Binding LoadClusterStatusCommand}" Padding="12,6"/>
+            </Grid>
+        </Border>
+
+        <!-- KPI Summary Cards -->
+        <Border Grid.Row="1" Padding="16,12">
+            <Grid ColumnDefinitions="*,*,*,*">
+                <!-- Card 1: Servers -->
+                <Border Grid.Column="0" Background="White" BorderBrush="#DEE2E6" BorderThickness="1" CornerRadius="6" Padding="12" Margin="0,0,8,0">
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="DATA SERVERS" FontSize="11" FontWeight="Bold" Foreground="#6C757D"/>
+                        <TextBlock Text="{Binding NodeSummary}" FontSize="18" FontWeight="Bold" Foreground="#28A745"/>
+                        <TextBlock Text="4 Online, 1 Mất tín hiệu" FontSize="11" Foreground="#6C757D"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Card 2: Capacity -->
+                <Border Grid.Column="1" Background="White" BorderBrush="#DEE2E6" BorderThickness="1" CornerRadius="6" Padding="12" Margin="0,0,8,0">
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="DUNG LƯỢNG KHẢ DỤNG" FontSize="11" FontWeight="Bold" Foreground="#6C757D"/>
+                        <TextBlock Text="{Binding StorageSummary}" FontSize="15" FontWeight="Bold" Foreground="#0066CC"/>
+                        <TextBlock Text="Tổng dung lượng 500 GB" FontSize="11" Foreground="#6C757D"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Card 3: Chunks -->
+                <Border Grid.Column="2" Background="White" BorderBrush="#DEE2E6" BorderThickness="1" CornerRadius="6" Padding="12" Margin="0,0,8,0">
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="TỔNG SỐ KHỐI (4 MB)" FontSize="11" FontWeight="Bold" Foreground="#6C757D"/>
+                        <TextBlock Text="{Binding ChunkSummary}" FontSize="15" FontWeight="Bold" Foreground="#212529"/>
+                        <TextBlock Text="1 bản sao / chunk (Stage 1)" FontSize="11" Foreground="#6C757D"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Card 4: Metadata -->
+                <Border Grid.Column="3" Background="White" BorderBrush="#DEE2E6" BorderThickness="1" CornerRadius="6" Padding="12">
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="METADATA LEADER" FontSize="11" FontWeight="Bold" Foreground="#6C757D"/>
+                        <TextBlock Text="{Binding MetadataLeader}" FontSize="13" FontWeight="Bold" Foreground="#0066CC" TextTrimming="CharacterEllipsis"/>
+                        <TextBlock Text="{Binding OpLogSeq, StringFormat='OpLog Sequence: #{0}'}" FontSize="11" Foreground="#6C757D"/>
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </Border>
+
+        <!-- Data Servers Table -->
+        <Border Grid.Row="2" Background="White" BorderBrush="#DEE2E6" BorderThickness="1" CornerRadius="6" Margin="16,0,16,12" Padding="12">
+            <Grid RowDefinitions="Auto,*">
+                <TextBlock Grid.Row="0" Text="CHI TIẾT 5 LAPTOP DATA SERVERS (HEARTBEAT 3 GIÂY)" FontWeight="Bold" FontSize="13" Foreground="#495057" Margin="4,0,0,10"/>
+
+                <ListBox Grid.Row="1" ItemsSource="{Binding Nodes}">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate DataType="shared:ClusterNodeInfo">
+                            <Grid ColumnDefinitions="1*,2*,2*,1.5*,2*,1.2*,1.5*" Margin="4,6">
+                                <TextBlock Grid.Column="0" Text="{Binding NodeId}" FontWeight="Bold" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="1" Text="{Binding MemberName}" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="2" Text="{Binding Address}" Foreground="#0066CC" FontFamily="Consolas, monospace" VerticalAlignment="Center"/>
+                                <Border Grid.Column="3"
+                                        Background="{Binding IsHealthy, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                        CornerRadius="4"
+                                        Padding="6,2"
+                                        HorizontalAlignment="Left"
+                                        VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding FormattedStatus}"
+                                               FontSize="11"
+                                               FontWeight="SemiBold"/>
+                                </Border>
+                                <TextBlock Grid.Column="4" Text="{Binding FormattedCapacity}" FontSize="12" Foreground="#495057" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="5" Text="{Binding FormattedChunkCount}" FontSize="12" Foreground="#6C757D" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="6" Text="{Binding LastSeenSeconds, StringFormat='Nhịp tim: {0}'}" FontSize="11" Foreground="#6C757D" VerticalAlignment="Center"/>
+                            </Grid>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </Grid>
+        </Border>
+
+        <!-- Status Footer -->
+        <Border Grid.Row="3" Background="White" BorderBrush="#DEE2E6" BorderThickness="0,1,0,0" Padding="16,6">
+            <TextBlock Text="{Binding StatusMessage}" FontSize="11" Foreground="#6C757D"/>
+        </Border>
+    </Grid>
+</UserControl>

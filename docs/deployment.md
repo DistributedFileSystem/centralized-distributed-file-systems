@@ -1,11 +1,11 @@
 # Deployment
 
-Cùng một Docker image chạy ở cả hai mode; chỉ khác file env. Avalonia client luôn chạy native trên laptop, không chạy trong Docker.
+Cùng một Dockerfile cho cả hai mode; chỉ khác file env. Không có CD: mỗi máy tự build image từ source bằng `--build` (build sẵn một ngày trước demo). Avalonia client luôn chạy native trên laptop, không chạy trong Docker.
 
 | Mode | Ở đâu | Cách chạy | Dùng cho |
 | --- | --- | --- | --- |
-| Single machine | 1 laptop | `docker compose -f deploy/docker-compose.yml up`: 1 Metadata Server + 5 Data Server, mỗi cái một volume và port | Phát triển, demo nhanh |
-| LAN cluster | 5 laptop | Mỗi laptop: `docker compose -f deploy/node.yml --env-file deploy/env/laptopN.env up` | Integration test, demo cuối |
+| Single machine | 1 laptop | `docker compose -f deploy/docker-compose.yml up --build`: 1 Metadata Server + 5 Data Server, mỗi cái một volume và port | Phát triển, demo nhanh |
+| LAN cluster | 5 laptop | Mỗi laptop: `docker compose -f deploy/node.yml --env-file deploy/env/laptopN.env up --build` | Integration test, demo cuối |
 
 ## Bố trí laptop
 

@@ -16,9 +16,9 @@
 
 Mục tiêu: mỗi người chạy và test phần của mình mà không phải chờ người khác.
 
-1. **Contract first**: `docs/protocol.md`, `docs/rbac.md` và `Dfs.Shared` được review và merge **trước** khi làm feature. Thay đổi sau đó phải báo cả team.
-2. **CI publish image**: mỗi lần merge vào `develop`, CI build và đẩy image `dfs-metadata` và `dfs-data` lên GitHub Container Registry.
-3. **Chạy phần người khác bằng image, phần mình bằng IDE**: Compose profile khởi động mọi thứ trừ service của mình. Ví dụ người làm Data Server chạy `docker compose --profile metadata up` rồi chạy Data Server trong IDE với `METADATA_ENDPOINTS=localhost:7000`.
+1. **Contract first**: Tân viết `docs/protocol.md`, `docs/rbac.md`, message types trong `Dfs.Shared` và các interface `IMetadataStore`, `IAuthorizer`, `IDfsClient`; merge **trước** khi làm feature. Chỉ Tân sửa contract sau đó, và phải báo Quân.
+2. **Code theo interface**: mỗi người code phần của mình sau interface; phần chưa có thì dùng `Dfs.Fakes`.
+3. **Chạy phần người khác bằng Compose, phần mình bằng IDE**: `docker compose up --build` với Compose profile khởi động mọi thứ trừ service của mình. Ví dụ người làm Data Server chạy `docker compose --profile metadata up --build` rồi chạy Data Server trong IDE với `METADATA_ENDPOINTS=localhost:7000`.
 4. **Fake trong `Dfs.Fakes`**: fake Metadata Server (thư mục và chunk location cố định), fake Data Server (chunk trong RAM), fake client SDK cho UI.
 5. **`Hello` mang protocol version**, nên build cũ báo lỗi rõ ràng thay vì lỗi lạ.
 
@@ -28,7 +28,6 @@ Mục tiêu: mỗi người chạy và test phần của mình mà không phải
 
 ## CI
 
-- Mỗi pull request: build, unit test, integration test với cluster Compose.
-- Mỗi lần merge vào `develop`: publish server image.
+- Chỉ có CI, không có CD. Mỗi pull request: build, unit test, acceptance test của Quân trên cluster Compose, kiểm tra Markdown link.
 - Linux runner là đủ; Avalonia build được trên Linux.
-- Hiện tại (giai đoạn docs) CI chỉ kiểm tra Markdown link; workflow build .NET sẽ thêm ở milestone M1.
+- Hiện tại (giai đoạn docs) CI chỉ kiểm tra Markdown link; workflow build .NET thêm ở M1-01, acceptance test thêm ở M2-02.

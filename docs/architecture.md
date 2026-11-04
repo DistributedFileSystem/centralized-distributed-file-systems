@@ -109,6 +109,7 @@ Không đổi: token, RBAC model, UI, format lưu chunk.
 | `Dfs.Client.Core` | Class library | Kết nối, session, upload/download chunk song song, retry theo endpoint list | 1 |
 | `Dfs.Client.Desktop` | Avalonia app | File browser, upload/download, version, share, admin panel | 1 |
 | `Dfs.Fakes` | Class library | Fake Metadata Server, fake Data Server, fake client SDK | 1 |
-| `Dfs.Tests` | Test project | Unit test + integration test với cluster Docker Compose | 1 |
+| `Dfs.Tests` | Test project | Unit test của dev | 1 |
+| `Dfs.AcceptanceTests` | Test project (Quân) | Black-box acceptance + failure test qua TCP, chỉ tham chiếu `Dfs.Shared` | 1 |
 | `Dfs.Consensus` | Class library | Raft adapter (DotNext) sau metadata-store boundary | 2 |
 | `deploy/` | Folder | Dockerfile, `docker-compose.yml`, `node.yml`, env mẫu, script firewall | 1 |

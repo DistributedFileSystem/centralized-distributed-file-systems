@@ -13,3 +13,6 @@ data/
 *.db
 *.db-wal
 *.db-shm
+# Python
+__pycache__/
+*.pyc

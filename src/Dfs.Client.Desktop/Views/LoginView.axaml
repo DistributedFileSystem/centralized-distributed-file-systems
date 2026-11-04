@@ -1,0 +1,99 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:Dfs.Client.Desktop.ViewModels"
+             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="600"
+             x:Class="Dfs.Client.Desktop.Views.LoginView"
+             x:DataType="vm:LoginViewModel">
+
+    <Grid Background="#F4F6F9">
+        <Border Background="White"
+                CornerRadius="8"
+                BorderBrush="#DEE2E6"
+                BorderThickness="1"
+                Padding="32"
+                Width="420"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center">
+            <StackPanel Spacing="16">
+                <!-- Header -->
+                <StackPanel HorizontalAlignment="Center" Spacing="6" Margin="0,0,0,10">
+                    <TextBlock Text="📁" FontSize="36" HorizontalAlignment="Center"/>
+                    <TextBlock Text="ĐĂNG NHẬP HỆ THỐNG" FontSize="18" FontWeight="SemiBold" Foreground="#212529" HorizontalAlignment="Center"/>
+                    <TextBlock Text="Centralized Distributed File System (DFS)" FontSize="12" Foreground="#6C757D" HorizontalAlignment="Center"/>
+                </StackPanel>
+
+                <!-- Error Banner -->
+                <Border Background="#F8D7DA"
+                        BorderBrush="#F5C6CB"
+                        BorderThickness="1"
+                        CornerRadius="4"
+                        Padding="10"
+                        IsVisible="{Binding HasError}">
+                    <TextBlock Text="{Binding ErrorMessage}"
+                               Foreground="#721C24"
+                               FontSize="12"
+                               TextWrapping="Wrap"/>
+                </Border>
+
+                <!-- Username -->
+                <StackPanel Spacing="4">
+                    <TextBlock Text="Tên đăng nhập:" FontSize="13" FontWeight="Medium" Foreground="#495057"/>
+                    <TextBox Text="{Binding Username}"
+                             PlaceholderText="Nhập username (ví dụ: an.nguyen hoặc admin)"
+                             Height="34"/>
+                </StackPanel>
+
+                <!-- Password -->
+                <StackPanel Spacing="4">
+                    <TextBlock Text="Mật khẩu:" FontSize="13" FontWeight="Medium" Foreground="#495057"/>
+                    <TextBox Text="{Binding Password}"
+                             PasswordChar="*"
+                             PlaceholderText="Nhập mật khẩu"
+                             Height="34"/>
+                </StackPanel>
+
+                <!-- Endpoint -->
+                <StackPanel Spacing="4">
+                    <TextBlock Text="Máy chủ Metadata (LAN):" FontSize="13" FontWeight="Medium" Foreground="#495057"/>
+                    <TextBox Text="{Binding Endpoint}"
+                             PlaceholderText="192.168.10.11:7000"
+                             Height="34"/>
+                </StackPanel>
+
+                <!-- Remember Me -->
+                <CheckBox Content="Ghi nhớ thông tin đăng nhập"
+                          IsChecked="{Binding RememberMe}"
+                          FontSize="12"
+                          Foreground="#6C757D"/>
+
+                <!-- Login Button -->
+                <Button Content="ĐĂNG NHẬP"
+                        Command="{Binding LoginCommand}"
+                        IsEnabled="{Binding !IsLoading}"
+                        Background="#0066CC"
+                        Foreground="White"
+                        FontWeight="SemiBold"
+                        Height="38"
+                        HorizontalAlignment="Stretch"
+                        HorizontalContentAlignment="Center"
+                        VerticalContentAlignment="Center"
+                        CornerRadius="4"/>
+
+                <!-- Progress Bar -->
+                <ProgressBar IsIndeterminate="True"
+                             IsVisible="{Binding IsLoading}"
+                             Height="4"
+                             Foreground="#0066CC"/>
+
+                <!-- Hints -->
+                <TextBlock Text="Gợi ý tài khoản: admin / an.nguyen / tan.phan (mật khẩu bất kỳ)"
+                           FontSize="11"
+                           Foreground="#ADB5BD"
+                           HorizontalAlignment="Center"
+                           Margin="0,6,0,0"/>
+            </StackPanel>
+        </Border>
+    </Grid>
+</UserControl>

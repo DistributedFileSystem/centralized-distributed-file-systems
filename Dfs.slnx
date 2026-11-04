@@ -1,0 +1,7 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Dfs.Client.Desktop/Dfs.Client.Desktop.csproj" />
+    <Project Path="src/Dfs.Fakes/Dfs.Fakes.csproj" />
+    <Project Path="src/Dfs.Shared/Dfs.Shared.csproj" />
+  </Folder>
+</Solution>

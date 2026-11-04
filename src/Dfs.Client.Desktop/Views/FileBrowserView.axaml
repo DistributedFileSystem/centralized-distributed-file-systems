@@ -1,0 +1,178 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:Dfs.Client.Desktop.ViewModels"
+             xmlns:shared="using:Dfs.Shared"
+             mc:Ignorable="d" d:DesignWidth="1000" d:DesignHeight="600"
+             x:Class="Dfs.Client.Desktop.Views.FileBrowserView"
+             x:DataType="vm:FileBrowserViewModel">
+
+    <Grid RowDefinitions="Auto,Auto,*,Auto">
+        <!-- Toolbar -->
+        <Border Grid.Row="0" Background="#F8F9FA" BorderBrush="#DEE2E6" BorderThickness="0,0,0,1" Padding="8,6">
+            <WrapPanel Orientation="Horizontal">
+                <Button Content="⬆ Lên cấp" Command="{Binding NavigateUpCommand}" Margin="0,0,6,0" Padding="10,5"/>
+                <Button Content="➕ Thư mục mới" Command="{Binding CreateFolderCommand}" Margin="0,0,6,0" Padding="10,5"/>
+                <Button Content="⬆ Tải lên" Command="{Binding UploadCommand}" Margin="0,0,6,0" Padding="10,5" Background="#0066CC" Foreground="White"/>
+                <Button Content="⬇ Tải xuống" Command="{Binding DownloadCommand}" Margin="0,0,6,0" Padding="10,5" IsEnabled="{Binding SelectedItem, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+                <Button Content="✏ Đổi tên" Command="{Binding RenameCommand}" Margin="0,0,6,0" Padding="10,5" IsEnabled="{Binding SelectedItem, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+                <Button Content="🗑 Xóa" Command="{Binding DeleteCommand}" Margin="0,0,6,0" Padding="10,5" Foreground="#DC3545" IsEnabled="{Binding SelectedItem, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+                <Button Content="🕒 Lịch sử phiên bản" Command="{Binding ShowVersionHistoryCommand}" Margin="0,0,6,0" Padding="10,5" IsEnabled="{Binding SelectedItem, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+                <Button Content="🔄 Làm mới" Command="{Binding LoadDirectoryCommand}" CommandParameter="{Binding CurrentPath}" Padding="10,5"/>
+            </WrapPanel>
+        </Border>
+
+        <!-- Breadcrumb Bar -->
+        <Border Grid.Row="1" Background="#FFFFFF" BorderBrush="#E9ECEF" BorderThickness="0,0,0,1" Padding="12,8">
+            <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                <TextBlock Text="Đường dẫn:" FontWeight="SemiBold" Foreground="#6C757D" VerticalAlignment="Center"/>
+                <Border Background="#EBF3FC" CornerRadius="4" Padding="8,3">
+                    <TextBlock Text="{Binding CurrentPath}" FontWeight="Medium" Foreground="#0066CC" VerticalAlignment="Center"/>
+                </Border>
+            </StackPanel>
+        </Border>
+
+        <!-- Main Content Area: Tree on left, Items table on right -->
+        <Grid Grid.Row="2" ColumnDefinitions="240,*">
+            <!-- Left Folder Tree -->
+            <Border Grid.Column="0" Background="#F8F9FA" BorderBrush="#DEE2E6" BorderThickness="0,0,1,0" Padding="8">
+                <Grid RowDefinitions="Auto,*">
+                    <TextBlock Grid.Row="0" Text="CÂY THƯ MỤC HỆ THỐNG" FontSize="11" FontWeight="Bold" Foreground="#6C757D" Margin="4,4,4,8"/>
+                    <TreeView Grid.Row="1" ItemsSource="{Binding FolderTree}">
+                        <TreeView.ItemTemplate>
+                            <TreeDataTemplate ItemsSource="{Binding SubFolders}">
+                                <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,2">
+                                    <TextBlock Text="{Binding Icon}" VerticalAlignment="Center"/>
+                                    <TextBlock Text="{Binding Name}" VerticalAlignment="Center" FontWeight="Medium"/>
+                                </StackPanel>
+                            </TreeDataTemplate>
+                        </TreeView.ItemTemplate>
+                    </TreeView>
+                </Grid>
+            </Border>
+
+            <!-- Right File List Table -->
+            <Grid Grid.Column="1" RowDefinitions="Auto,*">
+                <!-- Table Header -->
+                <Border Grid.Row="0" Background="#E9ECEF" BorderBrush="#DEE2E6" BorderThickness="0,0,0,1" Padding="12,8">
+                    <Grid ColumnDefinitions="3*,1.2*,1*,1.5*,2*">
+                        <TextBlock Grid.Column="0" Text="Tên tệp tin / Thư mục" FontWeight="Bold" FontSize="12" Foreground="#495057"/>
+                        <TextBlock Grid.Column="1" Text="Kích thước" FontWeight="Bold" FontSize="12" Foreground="#495057"/>
+                        <TextBlock Grid.Column="2" Text="Phiên bản" FontWeight="Bold" FontSize="12" Foreground="#495057"/>
+                        <TextBlock Grid.Column="3" Text="Chủ sở hữu" FontWeight="Bold" FontSize="12" Foreground="#495057"/>
+                        <TextBlock Grid.Column="4" Text="Thời gian sửa đổi" FontWeight="Bold" FontSize="12" Foreground="#495057"/>
+                    </Grid>
+                </Border>
+
+                <!-- Table Rows -->
+                <ListBox Grid.Row="1"
+                         ItemsSource="{Binding Items}"
+                         SelectedItem="{Binding SelectedItem}"
+                         Background="White">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate DataType="shared:DfsItem">
+                            <Grid ColumnDefinitions="3*,1.2*,1*,1.5*,2*" Margin="0,3">
+                                <!-- Name + Icon -->
+                                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8">
+                                    <TextBlock Text="{Binding Icon}" FontSize="15" VerticalAlignment="Center"/>
+                                    <TextBlock Text="{Binding Name}" FontWeight="Medium" Foreground="#212529" VerticalAlignment="Center"/>
+                                </StackPanel>
+
+                                <!-- Size -->
+                                <TextBlock Grid.Column="1" Text="{Binding FormattedSize}" Foreground="#6C757D" VerticalAlignment="Center"/>
+
+                                <!-- Version -->
+                                <Border Grid.Column="2"
+                                        Background="#E7F1FF"
+                                        CornerRadius="3"
+                                        Padding="6,2"
+                                        HorizontalAlignment="Left"
+                                        VerticalAlignment="Center"
+                                        IsVisible="{Binding IsFile}">
+                                    <TextBlock Text="{Binding FormattedVersion}" Foreground="#0066CC" FontSize="11" FontWeight="SemiBold"/>
+                                </Border>
+
+                                <!-- Owner -->
+                                <TextBlock Grid.Column="3" Text="{Binding Owner}" Foreground="#495057" VerticalAlignment="Center"/>
+
+                                <!-- Date -->
+                                <TextBlock Grid.Column="4" Text="{Binding FormattedDate}" Foreground="#6C757D" VerticalAlignment="Center"/>
+                            </Grid>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+
+                <!-- Loading overlay -->
+                <ProgressBar Grid.Row="1"
+                             IsIndeterminate="True"
+                             IsVisible="{Binding IsLoading}"
+                             Height="4"
+                             VerticalAlignment="Top"
+                             Foreground="#0066CC"/>
+            </Grid>
+        </Grid>
+
+        <!-- Version History Modal Dialog Overlay -->
+        <Border Grid.Row="0" Grid.RowSpan="4"
+                Background="#80000000"
+                IsVisible="{Binding ShowVersionHistoryModal}">
+            <Border Background="White"
+                    CornerRadius="8"
+                    BorderBrush="#DEE2E6"
+                    BorderThickness="1"
+                    Width="600"
+                    Padding="20"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center">
+                <StackPanel Spacing="16">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <StackPanel Grid.Column="0" Spacing="4">
+                            <TextBlock Text="🕒 LỊCH SỬ PHIÊN BẢN (WRITE-ONCE)" FontSize="16" FontWeight="Bold" Foreground="#212529"/>
+                            <TextBlock Text="{Binding VersionHistoryFileName, StringFormat='Tệp tin: {0}'}" FontSize="13" Foreground="#0066CC" FontWeight="Medium"/>
+                        </StackPanel>
+                        <Button Grid.Column="1" Content="✕" Command="{Binding CloseVersionHistoryCommand}" Padding="8,4"/>
+                    </Grid>
+
+                    <TextBlock Text="Hệ thống lưu giữ tối đa 5 phiên bản gần nhất. Bạn có thể tải lại bản cũ bất kỳ:" FontSize="12" Foreground="#6C757D"/>
+
+                    <Border BorderBrush="#DEE2E6" BorderThickness="1" CornerRadius="4">
+                        <ListBox ItemsSource="{Binding CurrentVersions}" Height="180">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate DataType="shared:FileVersionInfo">
+                                    <Grid ColumnDefinitions="Auto,*,Auto,Auto" Margin="4,4">
+                                        <Border Grid.Column="0" Background="#E7F1FF" CornerRadius="4" Padding="6,2" Margin="0,0,10,0">
+                                            <TextBlock Text="{Binding FormattedVersion}" FontWeight="Bold" Foreground="#0066CC"/>
+                                        </Border>
+                                        <StackPanel Grid.Column="1" Spacing="2">
+                                            <TextBlock Text="{Binding FormattedSize, StringFormat='Kích thước: {0}'}" FontSize="12" FontWeight="Medium"/>
+                                            <TextBlock Text="{Binding ChunkCount, StringFormat='Số chunk: {0} khối'}" FontSize="11" Foreground="#6C757D"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="2" Spacing="2" Margin="0,0,15,0">
+                                            <TextBlock Text="{Binding CreatedBy, StringFormat='Tạo bởi: {0}'}" FontSize="12" Foreground="#495057"/>
+                                            <TextBlock Text="{Binding FormattedDate}" FontSize="11" Foreground="#6C757D"/>
+                                        </StackPanel>
+                                        <Button Grid.Column="3" Content="⬇ Tải bản này" Padding="8,4" FontSize="11"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </Border>
+
+                    <Button Content="Đóng cửa sổ"
+                            Command="{Binding CloseVersionHistoryCommand}"
+                            HorizontalAlignment="Right"
+                            Padding="16,6"/>
+                </StackPanel>
+            </Border>
+        </Border>
+
+        <!-- Status Bar -->
+        <Border Grid.Row="3" Background="#F1F3F5" BorderBrush="#DEE2E6" BorderThickness="0,1,0,0" Padding="12,5">
+            <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Grid.Column="0" Text="{Binding StatusMessage}" FontSize="12" Foreground="#495057"/>
+                <TextBlock Grid.Column="1" Text="Avalonia Desktop | .NET 10" FontSize="11" Foreground="#ADB5BD"/>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

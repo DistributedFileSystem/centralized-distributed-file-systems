@@ -1,0 +1,162 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:Dfs.Client.Desktop.ViewModels"
+             xmlns:shared="using:Dfs.Shared"
+             mc:Ignorable="d" d:DesignWidth="950" d:DesignHeight="600"
+             x:Class="Dfs.Client.Desktop.Views.AdminPanelView"
+             x:DataType="vm:AdminPanelViewModel">
+
+    <Grid RowDefinitions="Auto,*,Auto" Background="#F8F9FA">
+        <!-- Header -->
+        <Border Grid.Row="0" Background="White" BorderBrush="#DEE2E6" BorderThickness="0,0,0,1" Padding="16,12">
+            <Grid ColumnDefinitions="*,Auto">
+                <StackPanel Grid.Column="0" Spacing="2">
+                    <TextBlock Text="BẢNG ĐIỀU KHIỂN QUẢN TRỊ HỆ THỐNG (ADMIN PANEL)" FontSize="16" FontWeight="Bold" Foreground="#212529"/>
+                    <TextBlock Text="Quản lý tài khoản người dùng, nhóm thành viên và phân quyền RBAC phân cấp" FontSize="12" Foreground="#6C757D"/>
+                </StackPanel>
+                <Button Grid.Column="1" Content="🔄 Làm mới" Command="{Binding LoadAllDataCommand}" Padding="12,6"/>
+            </Grid>
+        </Border>
+
+        <!-- Main Tabs -->
+        <TabControl Grid.Row="1" Margin="12" SelectedIndex="{Binding SelectedTabIndex}">
+            <!-- TAB 1: USERS -->
+            <TabItem Header="👤 Người dùng (Users)">
+                <Grid RowDefinitions="Auto,*" Margin="8">
+                    <!-- Create User Form -->
+                    <Border Grid.Row="0" Background="White" BorderBrush="#DEE2E6" BorderThickness="1" CornerRadius="6" Padding="12" Margin="0,0,0,12">
+                        <StackPanel Spacing="8">
+                            <TextBlock Text="Tạo tài khoản người dùng mới" FontWeight="Bold" FontSize="13" Foreground="#0066CC"/>
+                            <WrapPanel Orientation="Horizontal">
+                                <TextBox Text="{Binding NewUsername}" PlaceholderText="Username" Width="140" Margin="0,0,8,0"/>
+                                <TextBox Text="{Binding NewFullName}" PlaceholderText="Họ và tên" Width="180" Margin="0,0,8,0"/>
+                                <TextBox Text="{Binding NewInitialPassword}" PlaceholderText="Mật khẩu ban đầu" PasswordChar="*" Width="150" Margin="0,0,8,0"/>
+                                <TextBox Text="{Binding NewUserGroup}" PlaceholderText="Nhóm (ví dụ: Team A)" Width="130" Margin="0,0,8,0"/>
+                                <Button Content="➕ Thêm người dùng" Command="{Binding CreateUserCommand}" Background="#0066CC" Foreground="White" Padding="12,5"/>
+                            </WrapPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- User List -->
+                    <Border Grid.Row="1" Background="White" BorderBrush="#DEE2E6" BorderThickness="1" CornerRadius="6" Padding="8">
+                        <ListBox ItemsSource="{Binding Users}">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate DataType="shared:DfsUser">
+                                    <Grid ColumnDefinitions="1.5*,2*,1.5*,1.5*,Auto" Margin="4,4">
+                                        <TextBlock Grid.Column="0" Text="{Binding Username}" FontWeight="Bold" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding FullName}" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding GroupListText, StringFormat='Nhóm: {0}'}" Foreground="#6C757D" VerticalAlignment="Center"/>
+                                        <Border Grid.Column="3"
+                                                Background="{Binding IsDisabled, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                                CornerRadius="3"
+                                                Padding="6,2"
+                                                HorizontalAlignment="Left"
+                                                VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding StatusText}"
+                                                       FontSize="11"
+                                                       FontWeight="SemiBold"
+                                                       Foreground="{Binding IsDisabled, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+                                        </Border>
+                                        <Button Grid.Column="4"
+                                                Content="Khóa/Mở"
+                                                Command="{Binding $parent[UserControl].((vm:AdminPanelViewModel)DataContext).ToggleDisableUserCommand}"
+                                                CommandParameter="{Binding Username}"
+                                                Padding="8,3"
+                                                FontSize="11"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </Border>
+                </Grid>
+            </TabItem>
+
+            <!-- TAB 2: GROUPS -->
+            <TabItem Header="👥 Nhóm thành viên (Groups)">
+                <Grid RowDefinitions="Auto,*" Margin="8">
+                    <!-- Create Group Form -->
+                    <Border Grid.Row="0" Background="White" BorderBrush="#DEE2E6" BorderThickness="1" CornerRadius="6" Padding="12" Margin="0,0,0,12">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBlock Text="Tạo nhóm mới:" FontWeight="Bold" VerticalAlignment="Center"/>
+                            <TextBox Text="{Binding NewGroupName}" PlaceholderText="Tên nhóm (ví dụ: Developers)" Width="220"/>
+                            <Button Content="➕ Thêm nhóm" Command="{Binding CreateGroupCommand}" Background="#0066CC" Foreground="White" Padding="12,5"/>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Groups List -->
+                    <Border Grid.Row="1" Background="White" BorderBrush="#DEE2E6" BorderThickness="1" CornerRadius="6" Padding="8">
+                        <ListBox ItemsSource="{Binding Groups}">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate DataType="shared:DfsGroup">
+                                    <Grid ColumnDefinitions="2*,4*" Margin="6,6">
+                                        <StackPanel Grid.Column="0" Spacing="2">
+                                            <TextBlock Text="{Binding Name}" FontWeight="Bold" FontSize="14" Foreground="#0066CC"/>
+                                            <TextBlock Text="{Binding Id}" FontSize="11" Foreground="#ADB5BD"/>
+                                        </StackPanel>
+                                        <TextBlock Grid.Column="1"
+                                                   Text="{Binding Members, Converter={x:Static ObjectConverters.IsNotNull}, StringFormat='Thành viên: {0}'}"
+                                                   Foreground="#495057"
+                                                   VerticalAlignment="Center"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </Border>
+                </Grid>
+            </TabItem>
+
+            <!-- TAB 3: GRANTS -->
+            <TabItem Header="🔐 Phân quyền (Grants)">
+                <Grid RowDefinitions="Auto,*" Margin="8">
+                    <!-- Grant Form -->
+                    <Border Grid.Row="0" Background="White" BorderBrush="#DEE2E6" BorderThickness="1" CornerRadius="6" Padding="12" Margin="0,0,0,12">
+                        <StackPanel Spacing="8">
+                            <TextBlock Text="Cấp quyền truy cập trên thư mục/tập tin (RBAC với tính kế thừa)" FontWeight="Bold" FontSize="13" Foreground="#0066CC"/>
+                            <WrapPanel Orientation="Horizontal">
+                                <TextBox Text="{Binding GrantPath}" PlaceholderText="Đường dẫn (ví dụ: /projects)" Width="180" Margin="0,0,8,0"/>
+                                <TextBox Text="{Binding GrantSubject}" PlaceholderText="User/Group (ví dụ: Team A)" Width="150" Margin="0,0,8,0"/>
+                                <TextBox Text="{Binding GrantRole}" PlaceholderText="Vai trò: Owner/Editor/Viewer" Width="160" Margin="0,0,8,0"/>
+                                <Button Content="🔑 Cấp quyền" Command="{Binding AddGrantCommand}" Background="#0066CC" Foreground="White" Padding="12,5"/>
+                            </WrapPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Grants List -->
+                    <Border Grid.Row="1" Background="White" BorderBrush="#DEE2E6" BorderThickness="1" CornerRadius="6" Padding="8">
+                        <ListBox ItemsSource="{Binding Grants}">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate DataType="shared:DfsGrant">
+                                    <Grid ColumnDefinitions="2*,1.5*,1.5*,1.5*,Auto" Margin="4,4">
+                                        <TextBlock Grid.Column="0" Text="{Binding Path}" FontWeight="Bold" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding SubjectId, StringFormat='Đối tượng: {0}'}" VerticalAlignment="Center"/>
+                                        <Border Grid.Column="2" Background="#EBF3FC" CornerRadius="4" Padding="6,2" HorizontalAlignment="Left" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding Role, StringFormat='Vai trò: {0}'}" Foreground="#0066CC" FontWeight="Bold" FontSize="11"/>
+                                        </Border>
+                                        <TextBlock Grid.Column="3"
+                                                   Text="{Binding IsInherited, StringFormat='Kế thừa: {0}'}"
+                                                   Foreground="#6C757D"
+                                                   VerticalAlignment="Center"/>
+                                        <Button Grid.Column="4"
+                                                Content="Xóa"
+                                                Command="{Binding $parent[UserControl].((vm:AdminPanelViewModel)DataContext).RevokeGrantCommand}"
+                                                CommandParameter="{Binding Id}"
+                                                Foreground="#DC3545"
+                                                Padding="8,3"
+                                                FontSize="11"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </Border>
+                </Grid>
+            </TabItem>
+        </TabControl>
+
+        <!-- Status Footer -->
+        <Border Grid.Row="2" Background="White" BorderBrush="#DEE2E6" BorderThickness="0,1,0,0" Padding="12,6">
+            <TextBlock Text="{Binding StatusMessage}" FontSize="12" Foreground="#495057"/>
+        </Border>
+    </Grid>
+</UserControl>

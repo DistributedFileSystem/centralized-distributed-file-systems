@@ -1,0 +1,166 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Dfs.Client.Desktop.ViewModels"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="1100" d:DesignHeight="700"
+        x:Class="Dfs.Client.Desktop.Views.MainWindow"
+        x:DataType="vm:MainViewModel"
+        Icon="/Assets/avalonia-logo.ico"
+        Title="Centralized Distributed File System (DFS) - Avalonia Client"
+        Width="1100" Height="700"
+        MinWidth="850" MinHeight="550"
+        FontFamily="Segoe UI, Noto Sans, Ubuntu, -apple-system, sans-serif">
+
+    <Grid RowDefinitions="Auto,*,Auto">
+        <!-- TOP APP BAR -->
+        <Border Grid.Row="0" Background="#0066CC" Padding="16,10">
+            <Grid ColumnDefinitions="Auto,*,Auto">
+                <!-- Brand Title -->
+                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                    <TextBlock Text="📁" FontSize="20" VerticalAlignment="Center"/>
+                    <TextBlock Text="DFS Client" FontSize="16" FontWeight="Bold" Foreground="White" VerticalAlignment="Center"/>
+                    <Border Background="#267FD8" CornerRadius="3" Padding="6,2" VerticalAlignment="Center">
+                        <TextBlock Text="Stage 1: MVP" FontSize="11" FontWeight="SemiBold" Foreground="White"/>
+                    </Border>
+                </StackPanel>
+
+                <!-- Center: Connection Info -->
+                <StackPanel Grid.Column="1"
+                            Orientation="Horizontal"
+                            HorizontalAlignment="Center"
+                            Spacing="8"
+                            VerticalAlignment="Center"
+                            IsVisible="{Binding IsLoggedIn}">
+                    <TextBlock Text="Máy chủ Metadata:" Foreground="#B8D9F8" FontSize="12" VerticalAlignment="Center"/>
+                    <Border Background="#1A75D2" CornerRadius="4" Padding="8,3" VerticalAlignment="Center">
+                        <TextBlock Text="{Binding ConnectedEndpoint}" Foreground="White" FontFamily="Consolas, monospace" FontSize="12" FontWeight="SemiBold"/>
+                    </Border>
+                </StackPanel>
+
+                <!-- Right: User Badge & Logout -->
+                <StackPanel Grid.Column="2"
+                            Orientation="Horizontal"
+                            Spacing="12"
+                            VerticalAlignment="Center"
+                            IsVisible="{Binding IsLoggedIn}">
+                    <Border Background="#267FD8" CornerRadius="16" Padding="10,4" VerticalAlignment="Center">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <TextBlock Text="👤" FontSize="12" VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding CurrentUsername}" FontWeight="SemiBold" Foreground="White" FontSize="12" VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding CurrentUserRoles, StringFormat='({0})'}" Foreground="#D0E5FA" FontSize="11" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Border>
+
+                    <Button Content="Đăng xuất"
+                            Command="{Binding LogoutCommand}"
+                            Background="#D9383A"
+                            Foreground="White"
+                            FontWeight="SemiBold"
+                            FontSize="12"
+                            Padding="12,5"
+                            CornerRadius="4"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- MAIN BODY: Left Navigation Sidebar + Content Area -->
+        <Grid Grid.Row="1">
+            <!-- When Logged In: SplitView with Sidebar -->
+            <Grid ColumnDefinitions="220,*" IsVisible="{Binding IsLoggedIn}">
+                <!-- Sidebar -->
+                <Border Grid.Column="0" Background="#1E2227" Padding="10,16">
+                    <StackPanel Spacing="6">
+                        <TextBlock Text="DANH MỤC ĐIỀU HƯỚNG"
+                                   FontSize="11"
+                                   FontWeight="Bold"
+                                   Foreground="#8D99AE"
+                                   Margin="10,0,0,10"/>
+
+                        <!-- File Browser Tab -->
+                        <Button Command="{Binding NavigateToFileBrowserCommand}"
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Left"
+                                Padding="12,10"
+                                Background="Transparent"
+                                Foreground="White"
+                                CornerRadius="4">
+                            <StackPanel Orientation="Horizontal" Spacing="10">
+                                <TextBlock Text="📁" FontSize="14"/>
+                                <TextBlock Text="Tệp tin của tôi" FontWeight="Medium" FontSize="13"/>
+                            </StackPanel>
+                        </Button>
+
+                        <!-- Transfers Tab -->
+                        <Button Command="{Binding NavigateToTransfersCommand}"
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Left"
+                                Padding="12,10"
+                                Background="Transparent"
+                                Foreground="White"
+                                CornerRadius="4">
+                            <StackPanel Orientation="Horizontal" Spacing="10">
+                                <TextBlock Text="🔄" FontSize="14"/>
+                                <TextBlock Text="Hàng đợi truyền tải" FontWeight="Medium" FontSize="13"/>
+                            </StackPanel>
+                        </Button>
+
+                        <!-- Cluster Status Tab -->
+                        <Button Command="{Binding NavigateToClusterCommand}"
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Left"
+                                Padding="12,10"
+                                Background="Transparent"
+                                Foreground="White"
+                                CornerRadius="4">
+                            <StackPanel Orientation="Horizontal" Spacing="10">
+                                <TextBlock Text="🖥️" FontSize="14"/>
+                                <TextBlock Text="Trạng thái cụm" FontWeight="Medium" FontSize="13"/>
+                            </StackPanel>
+                        </Button>
+
+                        <!-- Admin Panel Tab (Only if Admin) -->
+                        <Button Command="{Binding NavigateToAdminCommand}"
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Left"
+                                Padding="12,10"
+                                Background="Transparent"
+                                Foreground="White"
+                                CornerRadius="4"
+                                IsVisible="{Binding IsAdmin}">
+                            <StackPanel Orientation="Horizontal" Spacing="10">
+                                <TextBlock Text="🛡️" FontSize="14"/>
+                                <TextBlock Text="Bảng quản trị" FontWeight="Medium" FontSize="13"/>
+                            </StackPanel>
+                        </Button>
+
+                        <!-- Divider -->
+                        <Border Height="1" Background="#343A40" Margin="0,15"/>
+
+                        <!-- Information note -->
+                        <StackPanel Margin="10,0" Spacing="4">
+                            <TextBlock Text="CỤM 5 LAPTOP LAN" FontSize="10" FontWeight="Bold" Foreground="#6C757D"/>
+                            <TextBlock Text="Đồ án Hệ Thống Thông Tin" FontSize="11" Foreground="#ADB5BD"/>
+                            <TextBlock Text="Đề tài 7 - Phần B (DFS)" FontSize="11" Foreground="#ADB5BD"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- Main Content Host -->
+                <ContentControl Grid.Column="1" Content="{Binding CurrentPage}"/>
+            </Grid>
+
+            <!-- When Logged Out: Full Window Login View -->
+            <ContentControl Content="{Binding CurrentPage}" IsVisible="{Binding !IsLoggedIn}"/>
+        </Grid>
+
+        <!-- BOTTOM STATUS BAR -->
+        <Border Grid.Row="2" Background="#F1F3F5" BorderBrush="#DEE2E6" BorderThickness="0,1,0,0" Padding="14,6">
+            <Grid ColumnDefinitions="*,Auto,Auto">
+                <TextBlock Grid.Column="0" Text="{Binding StatusText}" FontSize="12" Foreground="#495057"/>
+                <TextBlock Grid.Column="1" Text="Giao thức: Raw TCP v1 (Direct Data)" FontSize="11" Foreground="#6C757D" Margin="0,0,16,0"/>
+                <TextBlock Grid.Column="2" Text="Avalonia UI .NET 10 (Windows &amp; Linux)" FontSize="11" Foreground="#ADB5BD"/>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

@@ -2,7 +2,7 @@
 
 - Trạng thái: Proposed | Accepted | Superseded by ADR-XXXX
 - Ngày: YYYY-MM-DD
-- Người quyết định: <role>
+- Người đề xuất: <tên>
 
 ## Context
 Vấn đề cần quyết định và ràng buộc.

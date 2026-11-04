@@ -16,7 +16,7 @@
 
 Mục tiêu: mỗi người chạy và test phần của mình mà không phải chờ người khác.
 
-1. **Contract first**: `docs/protocol.md`, `docs/rbac.md` và `Dfs.Shared` được review và merge **trước** khi làm feature. Thay đổi sau đó cần approve của owner hai phía.
+1. **Contract first**: `docs/protocol.md`, `docs/rbac.md` và `Dfs.Shared` được review và merge **trước** khi làm feature. Thay đổi sau đó phải báo cả team.
 2. **CI publish image**: mỗi lần merge vào `develop`, CI build và đẩy image `dfs-metadata` và `dfs-data` lên GitHub Container Registry.
 3. **Chạy phần người khác bằng image, phần mình bằng IDE**: Compose profile khởi động mọi thứ trừ service của mình. Ví dụ người làm Data Server chạy `docker compose --profile metadata up` rồi chạy Data Server trong IDE với `METADATA_ENDPOINTS=localhost:7000`.
 4. **Fake trong `Dfs.Fakes`**: fake Metadata Server (thư mục và chunk location cố định), fake Data Server (chunk trong RAM), fake client SDK cho UI.

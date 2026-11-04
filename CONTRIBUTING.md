@@ -49,27 +49,27 @@ gitGraph
    `feat(dataserver): verify HMAC token`, `fix(client): retry on timeout`, `docs(protocol): add ReadChunk fields`.
    Scope thường dùng: `metadata`, `security`, `dataserver`, `sdk`, `ui`, `deploy`, `docs`.
 4. Push và mở pull request vào `develop`, dùng PR template, ghi `Closes #23`.
-5. Card tự chuyển sang **In review**. Cần **1 approve** (CODEOWNERS của phần bị sửa) + **CI xanh**.
+5. Card tự chuyển sang **In review**. Cần **1 approve** của bất kỳ thành viên nào khác + **CI xanh**.
 6. Merge kiểu **Squash and merge**, xoá branch. Issue tự đóng, card sang **Done**.
 
 ## Quy tắc chung
 
 - Không push thẳng vào `main` hoặc `develop`.
 - Một pull request = một issue. PR nhỏ, review nhanh (mục tiêu < 400 dòng).
-- Thay đổi protocol, RBAC hoặc schema phải sửa `docs/protocol.md`, `docs/rbac.md` hoặc `docs/data-model.md` **trong cùng pull request**, và cần approve của owner hai phía liên quan.
+- Thay đổi protocol, RBAC hoặc schema phải sửa `docs/protocol.md`, `docs/rbac.md` hoặc `docs/data-model.md` **trong cùng pull request**, và báo cả team trước khi merge vì nó ảnh hưởng tới mọi người.
 - Quyết định kiến trúc lớn → thêm một file trong `docs/adr/`.
 - Không commit secret (`TOKEN_KEY`, mật khẩu admin). Dùng file `.env` local, đã có trong `.gitignore`.
 - Rebase branch của mình lên `develop` mới nhất trước khi xin review nếu có conflict.
 
 ## Release
 
-1. Lead tạo `release/x.y.z` từ `develop` khi milestone cuối của stage xong.
+1. Người điều phối tạo `release/x.y.z` từ `develop` khi milestone cuối của stage xong.
 2. Chỉ sửa bug trên branch release. Chạy toàn bộ demo script trên 5 laptop.
 3. Merge vào `main`, tag `vx.y.z`, rồi merge ngược vào `develop`.
 
 ## Thiết lập trên GitHub (owner organization làm một lần)
 
-- Branch protection cho `main` và `develop`: require pull request, 1 approval, require review from Code Owners, require status checks, chặn force push.
+- Branch protection cho `main` và `develop`: require pull request, 1 approval, require status checks, chặn force push.
 - Default branch: `develop`.
 - Bật "Automatically delete head branches".
 - Cho phép **Squash merging** (tắt merge commit cho feature PR nếu muốn lịch sử gọn).

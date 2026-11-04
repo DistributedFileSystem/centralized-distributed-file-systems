@@ -1,6 +1,6 @@
 # Protocol (v0.1 – draft)
 
-> Owner: Client SDK. Mọi thay đổi cần approve của owner phía bên kia (Metadata hoặc Data Server).
+> Đây là contract chung: đổi gì phải báo cả team.
 
 ## Transport
 

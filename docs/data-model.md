@@ -1,6 +1,6 @@
 # Data model (draft)
 
-> Owner: Lead / Metadata core. Bản nháp, sẽ chốt ở milestone M1.
+> Bản nháp, sẽ chốt ở milestone M1.
 
 ## SQLite schema (Metadata Server)
 

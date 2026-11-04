@@ -1,7 +1,5 @@
 # Deployment
 
-> Owner: Data Server + DevOps.
-
 Cùng một Docker image chạy ở cả hai mode; chỉ khác file env. Avalonia client luôn chạy native trên laptop, không chạy trong Docker.
 
 | Mode | Ở đâu | Cách chạy | Dùng cho |

@@ -1,6 +1,6 @@
 # Test plan
 
-> Owner: Lead. File này trở thành **test report** ở cuối mỗi stage (thêm cột kết quả).
+> File này trở thành **test report** ở cuối mỗi stage (thêm cột kết quả).
 
 ## Phạm vi
 

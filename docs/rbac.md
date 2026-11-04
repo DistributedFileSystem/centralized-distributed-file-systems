@@ -1,7 +1,5 @@
 # Login và RBAC
 
-> Owner: Security.
-
 User đăng nhập bằng username + password. Mỗi request được kiểm tra dựa trên các **role** được cấp cho user (trực tiếp hoặc qua **group**), ở phạm vi toàn hệ thống hoặc trên một thư mục / file.
 
 ## Khái niệm

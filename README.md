@@ -51,12 +51,12 @@ docker compose -f deploy/node.yml --env-file deploy/env/laptop1.env up
 
 ## Team
 
-| Role | Thành viên |
-| --- | --- |
-| Lead / Metadata core | _(TBD)_ |
-| Security (Auth + RBAC) | _(TBD)_ |
-| Data Server + DevOps | _(TBD)_ |
-| Client SDK | _(TBD)_ |
-| UI (Avalonia) | _(TBD)_ |
+5 thành viên: _(điền tên + GitHub username)_. Điều phối: _(TBD)_.
 
-Theo dõi công việc trên **GitHub Project** của organization.
+Không chia role cố định:
+
+1. **Một người điều phối**: cập nhật board, tạo release và merge vào `main` trước khi nộp.
+2. **Tự nhận task trên board**: làm xong task này thì nhận task tiếp theo. Có thể làm nhiều task cùng mảng nếu quen, nhưng không ai "sở hữu" mảng nào.
+3. **Ai cũng review được cho ai**: mỗi pull request cần 1 approve của bất kỳ thành viên nào khác.
+
+Theo dõi công việc trên **GitHub Project** của organization. Label `area:*` trên issue chỉ để lọc, không phải phân công.

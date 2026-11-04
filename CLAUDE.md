@@ -7,6 +7,7 @@ Giao tiếp với người dùng bằng **tiếng Anh**; docs trong repo viết 
 ## Trạng thái hiện tại (2026-11-04)
 
 - Repo có docs + quy trình, **chưa có code**. Branch: `main`, `develop`.
+- Default branch = `develop`. Ruleset bảo vệ `main` và `develop` đã bật (PR + 1 approval + required check `markdown-links`); đang kiểm tra bằng test PR `feature/0-test-branch-rules` → `develop`.
 - Labels, milestones, 39 issues và GitHub Project **chưa được tạo**: chạy `scripts/setup_github.py` (cần `gh auth refresh -s project`).
 - Session cloud trước không push được (Claude GitHub App chưa cài trên org `DistributedFileSystem`), nên nội dung được đưa qua git bundle.
 

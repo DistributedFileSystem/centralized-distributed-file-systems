@@ -1,4 +1,6 @@
-# Login và RBAC
+# Login và RBAC (v1)
+
+> Đây là contract chung: đổi gì phải báo cả team. Chỉ Tân sửa file này, trong PR riêng. Hằng số permission và role nằm ở `src/Dfs.Shared/Security`.
 
 User đăng nhập bằng username + password. Mỗi request được kiểm tra dựa trên các **role** được cấp cho user (trực tiếp hoặc qua **group**), ở phạm vi toàn hệ thống hoặc trên một thư mục / file.
 
@@ -29,14 +31,44 @@ User đăng nhập bằng username + password. Mỗi request được kiểm tra
 | Editor | Thư mục / file | list, read, write, create, rename, delete |
 | Viewer | Thư mục / file | list, read |
 
+Mỗi built-in role có id cố định: `r-admin`, `r-auditor`, `r-owner`, `r-editor`, `r-viewer`. Built-in role không sửa / xoá được. Role do Admin tạo có `scope` `system` hoặc `item` và chỉ chứa permission của đúng scope đó (`UpdateRole` trả `BadRequest` nếu trộn).
+
 Admin có thể tạo thêm role trong admin panel. Người tạo thư mục / file tự động là **Owner** của nó.
+
+## Permission cần cho mỗi operation
+
+| Operation | Permission | Kiểm tra trên |
+| --- | --- | --- |
+| `ListDir` | `item.list` | thư mục (kết quả chỉ gồm item user có `item.list`) |
+| `Stat` | `item.list` | item |
+| `ListVersions`, `Open` | `file.read` | file |
+| `CreateFolder` | `item.create` | thư mục cha |
+| `CreateUpload` / `CommitUpload` file mới | `item.create` | thư mục cha |
+| `CreateUpload` / `CommitUpload` version mới | `file.write` | file |
+| `AbortUpload` | người tạo upload, hoặc system `Admin` | upload |
+| `Rename` | `item.rename` | item |
+| `Move` | `item.rename` trên item và `item.create` trên thư mục đích | item, thư mục đích |
+| `DeleteItem` | `item.delete` | item |
+| `CreateGrant`, `ListGrants`, `RevokeGrant` trên item | `item.share` | item |
+| Grant system (`path` rỗng) | `role.manage` | system |
+| `CreateUser`, `ListUsers`, `SetUserDisabled`, `ResetPassword` | `user.manage` | system |
+| `CreateGroup`, `ListGroups`, `SetGroupMember` | `group.manage` | system |
+| `CreateRole`, `ListRoles`, `UpdateRole` | `role.manage` | system |
+| `ClusterStatus` | `cluster.view` | system |
+| `ListAudit` | `audit.view` | system |
+| `Hello`, `Login`, `Logout`, `Register`, `Heartbeat`, `ChunkReport` | không kiểm tra permission | – |
+
+`version.manage` dành cho thao tác quản lý version trong tương lai (stage 1 chỉ giữ N version tự động); chưa có message nào dùng.
 
 ## Kiểm tra một request
 
 1. Session token → user. Từ chối nếu session hết hạn hoặc user bị disable.
 2. Gom grant của chính user + grant của mọi group user thuộc về.
 3. Cho phép nếu một system grant có permission đó, hoặc một grant trên item **hoặc bất kỳ thư mục cha nào** có permission đó (grant kế thừa xuống cây).
-4. Ngược lại từ chối và ghi vào **audit log**.
+4. Ngược lại từ chối (`Forbidden`).
+5. Ghi **audit log** do **nơi gọi** (handler của Metadata Server) thực hiện bằng command `RecordAudit`, cho cả allow lẫn deny của operation thay đổi dữ liệu và mọi deny. `IAuthorizer` chỉ trả quyết định allow / deny + lý do, không ghi gì và không phụ thuộc store.
+
+Stage 1 trả `Forbidden` nếu item tồn tại mà user không có permission, và `NotFound` nếu item không tồn tại (đơn giản, không che giấu sự tồn tại).
 
 Stage 1 chỉ có grant cho phép (allow). Rule deny và "ngừng kế thừa" trên thư mục là tuỳ chọn stage 2.
 
@@ -54,10 +86,15 @@ flowchart TD
 
 ## Session và data token
 
+- Session token: ít nhất 32 byte ngẫu nhiên từ CSPRNG, base64url, tiền tố `s-`. User bị disable → mọi session hiện có bị từ chối ở lần kiểm tra kế tiếp (`Unauthorized`). `Logout` xoá session.
 - Login trả về session token ngẫu nhiên, lưu phía server kèm thời hạn (8 giờ). Mọi request tới Metadata Server mang session token.
 - Data Server không bao giờ thấy session. Với mỗi chunk, Metadata Server cấp cho client một **data token** (xem `protocol.md`) ký bằng HMAC.
 - Admin đầu tiên được tạo từ config (`ADMIN_USER`, `ADMIN_PASSWORD`) ở lần khởi động đầu.
 - Stage 1 gửi mọi thứ qua TCP thường trong LAN, kể cả password. TLS (`SslStream`) là tuỳ chọn stage 2; ghi rõ là **known limitation** trong báo cáo.
+
+## Audit log
+
+Mỗi entry: `seq` (tăng dần), `time` (UTC), `userId`, `action` (tên message), `target` (path hoặc id), `allowed` (true/false). Chỉ user có `audit.view` đọc được qua `ListAudit`.
 
 ## Admin panel
 

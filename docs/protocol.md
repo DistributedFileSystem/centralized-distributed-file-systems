@@ -246,7 +246,7 @@ Response lỗi (type `0xFF`) thay thế response bình thường:
   "details": { "currentVersion": 4 } }
 ```
 
-Record: `ErrorResponse(RequestId, Code, Message, Details)` với `Code` kiểu `ErrorCode`, `Details` là object tuỳ chọn (map string → giá trị JSON). Khi code nhận `Error` nó ném `DfsException` mang `Code`, `Message`, `Details`. Field `null` được bỏ khỏi JSON khi ghi (ví dụ `path`/`itemId` của system grant không xuất hiện) và đọc lại thành `null`.
+Record: `ErrorResponse(RequestId, Code, Message, Details)` với `Code` kiểu `ErrorCode`, `Details` là object tuỳ chọn (map string → giá trị JSON). Các field danh sách trong record dùng `ValueList<T>` (một `List<T>` so sánh bằng giá trị, serialize như JSON array). Khi code nhận `Error` nó ném `DfsException` mang `Code`, `Message`, `Details`. Field `null` được bỏ khỏi JSON khi ghi (ví dụ `path`/`itemId` của system grant không xuất hiện) và đọc lại thành `null`.
 
 `message` cho người đọc, client xử lý theo `code`. `details` tuỳ chọn (`Conflict` → `currentVersion`; `NotLeader` → `leader`).
 

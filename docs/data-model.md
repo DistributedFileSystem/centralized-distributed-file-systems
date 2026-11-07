@@ -54,6 +54,8 @@ erDiagram
     text kind
     text owner_id
     int current_version
+    int size
+    text modified_at
   }
   FILE_VERSIONS {
     text item_id FK
@@ -85,6 +87,8 @@ erDiagram
     text last_heartbeat
   }
 ```
+
+`ITEMS.parent_id` của item cấp cao nhất là chuỗi `root` (không có row cho root). `USERS` có thêm `created_at`. Bảng `APPLIED_SEQ` (1 dòng: `seq`) lưu `seq` đã apply, dùng khi replay op log. `UNIQUE(parent_id, name)` trên `ITEMS`.
 
 Thêm các bảng: `SESSIONS` (token, user_id, expires_at), `UPLOADS` (upload đang dở), `AUDIT_LOG` (time, user, action, target, allowed). `GRANTS.item_id` = NULL nghĩa là system grant.
 

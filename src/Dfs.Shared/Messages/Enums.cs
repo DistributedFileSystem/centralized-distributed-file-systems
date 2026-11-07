@@ -1,6 +1,10 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
 namespace Dfs.Shared.Messages;
 
 /// <summary>Kind of node that sends or answers a <c>Hello</c>.</summary>
+[JsonConverter(typeof(CamelCaseEnumConverter))]
 public enum NodeType
 {
     /// <summary>A client (SDK or desktop app).</summary>
@@ -12,6 +16,7 @@ public enum NodeType
 }
 
 /// <summary>Kind of a namespace item.</summary>
+[JsonConverter(typeof(CamelCaseEnumConverter))]
 public enum ItemKind
 {
     /// <summary>A file.</summary>
@@ -21,6 +26,7 @@ public enum ItemKind
 }
 
 /// <summary>Scope of a role.</summary>
+[JsonConverter(typeof(CamelCaseEnumConverter))]
 public enum RoleScope
 {
     /// <summary>Contains system permissions only.</summary>
@@ -30,6 +36,7 @@ public enum RoleScope
 }
 
 /// <summary>Kind of the subject of a grant.</summary>
+[JsonConverter(typeof(CamelCaseEnumConverter))]
 public enum SubjectType
 {
     /// <summary>A single user.</summary>
@@ -39,6 +46,7 @@ public enum SubjectType
 }
 
 /// <summary>Liveness of a Data Server.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter))]
 public enum DataServerStatus
 {
     /// <summary>Heartbeats are arriving.</summary>
@@ -48,6 +56,7 @@ public enum DataServerStatus
 }
 
 /// <summary>Error code carried by <see cref="ErrorResponse"/> and <see cref="DfsException"/>.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter))]
 public enum ErrorCode
 {
     /// <summary>Not logged in, wrong username or password, or session expired.</summary>
@@ -74,4 +83,12 @@ public enum ErrorCode
     Internal,
     /// <summary>Stage 2: the node is not the leader; <c>details.leader</c> holds the leader address.</summary>
     NotLeader,
+}
+
+/// <summary>Writes enum names in camelCase, as protocol.md shows for <c>kind</c>, <c>scope</c>, <c>subjectType</c>, <c>nodeType</c>.</summary>
+internal sealed class CamelCaseEnumConverter : JsonStringEnumConverter
+{
+    public CamelCaseEnumConverter() : base(JsonNamingPolicy.CamelCase)
+    {
+    }
 }

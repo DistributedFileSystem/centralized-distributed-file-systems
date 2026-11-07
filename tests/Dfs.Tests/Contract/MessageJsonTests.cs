@@ -5,7 +5,7 @@ namespace Dfs.Tests.Contract;
 
 /// <summary>
 /// AC1 (TC2, TC3): every example in docs/protocol.md deserializes into the message record and serializes back to the same JSON.
-/// Options per protocol.md – Frame format: camelCase, enums as strings, null omitted.
+/// Options per protocol.md – Frame format: camelCase, null omitted. Enum casing comes from the types themselves (no global enum converter).
 /// </summary>
 public class MessageJsonTests
 {
@@ -21,7 +21,6 @@ public class MessageJsonTests
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) },
     };
 
     public static IEnumerable<object[]> Examples()
@@ -157,7 +156,33 @@ public class MessageJsonTests
         Assert.Equal(value, again); // records: value equality
     }
 
-    // Strings compare ignoring case because protocol.md mixes "file"/"folder" and "Alive"/"Dead" for enum values.
+    [Fact]
+    public void ErrorResponse_ConflictCode_SerializesPascalCase()
+    {
+        // docs/protocol.md – Error codes: code is PascalCase
+        var type = ContractSupport.Require(ContractSupport.MessagesNs, "ErrorResponse");
+        var json = Fill("""{ "requestId": "…", "code": "Conflict", "message": "baseVersion is stale" }""");
+        var value = JsonSerializer.Deserialize(json, type, Options);
+        Assert.NotNull(value);
+        var written = JsonSerializer.Serialize(value, type, Options);
+        using var doc = JsonDocument.Parse(written);
+        Assert.Equal("Conflict", doc.RootElement.GetProperty("code").GetString());
+    }
+
+    [Fact]
+    public void DataServerInfo_AliveStatus_SerializesPascalCase()
+    {
+        // docs/protocol.md – ClusterStatus: status is "Alive"/"Dead"
+        var type = ContractSupport.Require(ContractSupport.MessagesNs, "DataServerInfo");
+        var json = """{ "nodeId": "ds-1", "address": "192.168.1.11:7001", "status": "Alive", "capacityBytes": 100, "freeBytes": 50, "chunkCount": 3, "lastHeartbeat": "2026-11-20T09:15:02Z" }""";
+        var value = JsonSerializer.Deserialize(json, type, Options);
+        Assert.NotNull(value);
+        var written = JsonSerializer.Serialize(value, type, Options);
+        using var doc = JsonDocument.Parse(written);
+        Assert.Equal("Alive", doc.RootElement.GetProperty("status").GetString());
+    }
+
+    // Strings compare ordinally: the types must produce the documented casing ("file", "Alive", "Conflict").
     private static void AssertJsonEqual(JsonElement expected, JsonElement actual, string path)
     {
         Assert.Equal(expected.ValueKind == JsonValueKind.False ? JsonValueKind.True : expected.ValueKind,
@@ -177,7 +202,7 @@ public class MessageJsonTests
                 for (var i = 0; i < ea.Count; i++) AssertJsonEqual(ea[i], aa[i], $"{path}[{i}]");
                 break;
             case JsonValueKind.String:
-                Assert.True(string.Equals(expected.GetString(), actual.GetString(), StringComparison.OrdinalIgnoreCase),
+                Assert.True(string.Equals(expected.GetString(), actual.GetString(), StringComparison.Ordinal),
                     $"{path}: expected {expected.GetString()} but was {actual.GetString()}");
                 break;
             case JsonValueKind.Number:

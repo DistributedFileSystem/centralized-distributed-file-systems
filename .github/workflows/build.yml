@@ -1,0 +1,19 @@
+name: build
+
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop]
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - run: dotnet restore Dfs.sln
+      - run: dotnet build Dfs.sln --no-restore -c Release
+      - run: dotnet test Dfs.sln --no-build -c Release

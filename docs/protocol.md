@@ -21,12 +21,14 @@
 - Control message: payload là **JSON** (UTF-8, không BOM) dựng bằng System.Text.Json: tên field `camelCase`, enum là string, `null` được bỏ qua khi ghi. Có thể đổi sang MessagePack sau mà không đổi framing.
 - Chunk data (`WriteChunk` request, `ReadChunk` response): payload = **4 byte big-endian `headerLength`**, rồi header JSON dài `headerLength` byte, rồi raw bytes của chunk (phần còn lại của payload).
 - Mọi request có `requestId` (GUID, dạng chuỗi) để log theo dõi một thao tác qua nhiều laptop. Response lặp lại `requestId` của request.
+- Casing của giá trị enum trong JSON: `kind`, `scope`, `subjectType`, `nodeType` dùng **chữ thường** (`"file"`, `"system"`, `"group"`, `"data"`); `status` dùng `"Alive"` / `"Dead"`; `code` của lỗi dùng PascalCase (`"Conflict"`). Tên role (`Admin`, `Editor`…) là string tự do, không phải enum.
 - Quy ước kiểu: id là chuỗi; thời gian là ISO-8601 UTC (`2026-11-20T09:15:02Z`); size là số nguyên 64-bit (byte); `version` là số nguyên bắt đầu từ 1.
 
 ## Message id (byte `type`)
 
 - Request: `0x01`–`0x7F`. Response = id của request **OR `0x80`** (ví dụ `Login` = `0x10`, `LoginResponse` = `0x90`).
 - `0xFF` = `Error`, có thể trả thay cho bất kỳ response nào.
+- Trong `Dfs.Shared`, enum `MessageType` có một member cho mỗi request (`Login = 0x10`) và một member cho mỗi response (`LoginResponse = 0x90`), cộng `Error = 0xFF`. Record của request tên `<Name>`, của response tên `<Name>Response`, của lỗi tên `ErrorResponse`.
 - Message không có dữ liệu trả về dùng response rỗng (`{ "requestId": "…" }`).
 
 | Id | Request | Chiều | Stage |
@@ -215,6 +217,8 @@ Tất cả cần session; permission ghi ở từng message. Response liệt kê
 | `ListAudit` | `audit.view` | `from?`, `to?`, `userId?`, `limit` (mặc định 100, tối đa 1000) | `entries[]` |
 | `ClusterStatus` | `cluster.view` | – | `dataServers[]` |
 
+Response danh sách (mỗi cái kèm `requestId`): `ListUsers` → `{ "users": [<user>] }`, `ListGroups` → `{ "groups": [<group>] }`, `ListRoles` → `{ "roles": [<role>] }`, `ListGrants` → `{ "grants": [<grant>] }`, `ListAudit` → `{ "entries": [<entry>] }`, `ClusterStatus` → `{ "dataServers": [<dataServer>] }`. `UpdateRole` → `{ "role": <role> }` (cùng dạng `CreateRole`). `SetUserDisabled`, `ResetPassword`, `SetGroupMember`, `RevokeGrant` → `{ "requestId": "…" }`.
+
 Hình dạng đối tượng:
 
 - `user`: `{ "id", "username", "disabled", "groupIds": [] }` (không bao giờ trả hash / salt)
@@ -241,6 +245,8 @@ Response lỗi (type `0xFF`) thay thế response bình thường:
 { "requestId": "…", "code": "Conflict", "message": "File changed since version 3",
   "details": { "currentVersion": 4 } }
 ```
+
+Record: `ErrorResponse(RequestId, Code, Message, Details)` với `Code` kiểu `ErrorCode`, `Details` là object tuỳ chọn (map string → giá trị JSON). Khi code nhận `Error` nó ném `DfsException` mang `Code`, `Message`, `Details`. Field `null` được bỏ khỏi JSON khi ghi (ví dụ `path`/`itemId` của system grant không xuất hiện) và đọc lại thành `null`.
 
 `message` cho người đọc, client xử lý theo `code`. `details` tuỳ chọn (`Conflict` → `currentVersion`; `NotLeader` → `leader`).
 

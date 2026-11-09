@@ -18,3 +18,4 @@ public static class ProtocolConstants
     /// <summary>Default TCP listening port for Data Server (7001).</summary>
     public const int DefaultDataPort = 7001;
 }
+

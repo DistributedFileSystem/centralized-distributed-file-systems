@@ -5,3 +5,4 @@ namespace Dfs.Shared.Framing;
 /// <param name="Header">The deserialized chunk header record.</param>
 /// <param name="ChunkBytes">The raw bytes of the chunk.</param>
 public sealed record ChunkFrame<THeader>(THeader Header, ReadOnlyMemory<byte> ChunkBytes);
+

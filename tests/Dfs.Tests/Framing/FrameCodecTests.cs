@@ -251,3 +251,4 @@ public class FrameCodecTests
         Assert.Equal(ErrorCode.BadRequest, ex.Code);
     }
 }
+

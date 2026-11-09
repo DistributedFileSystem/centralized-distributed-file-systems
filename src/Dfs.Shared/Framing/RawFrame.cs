@@ -10,3 +10,4 @@ public sealed record RawFrame(MessageType Type, byte[] Payload)
     /// <summary>Payload length in bytes.</summary>
     public int Length => Payload.Length;
 }
+

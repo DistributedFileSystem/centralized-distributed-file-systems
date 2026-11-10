@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading.Tasks;
@@ -47,6 +48,41 @@ public sealed class AdminPanelViewModel : ViewModelBase
     public ObservableCollection<UiUserItem> Users { get; } = [];
     public ObservableCollection<UiGroupItem> Groups { get; } = [];
     public ObservableCollection<UiGrantItem> Grants { get; } = [];
+
+    private string _searchUserQuery = "";
+    private string _searchGroupQuery = "";
+
+    public string SearchUserQuery
+    {
+        get => _searchUserQuery;
+        set
+        {
+            if (SetProperty(ref _searchUserQuery, value))
+            {
+                OnPropertyChanged(nameof(FilteredUsers));
+            }
+        }
+    }
+
+    public string SearchGroupQuery
+    {
+        get => _searchGroupQuery;
+        set
+        {
+            if (SetProperty(ref _searchGroupQuery, value))
+            {
+                OnPropertyChanged(nameof(FilteredGroups));
+            }
+        }
+    }
+
+    public IEnumerable<UiUserItem> FilteredUsers => string.IsNullOrWhiteSpace(_searchUserQuery)
+        ? Users
+        : Users.Where(u => u.Username.Contains(_searchUserQuery.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    public IEnumerable<UiGroupItem> FilteredGroups => string.IsNullOrWhiteSpace(_searchGroupQuery)
+        ? Groups
+        : Groups.Where(g => g.Name.Contains(_searchGroupQuery.Trim(), StringComparison.OrdinalIgnoreCase));
 
     public int SelectedTabIndex
     {

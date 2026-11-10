@@ -49,13 +49,46 @@ public sealed class UiDirectoryNode : INotifyPropertyChanged
     }
 }
 
+public sealed class UiBreadcrumbItem
+{
+    public string Name { get; set; } = "";
+    public string FullPath { get; set; } = "/";
+    public bool IsLast { get; set; }
+
+    public UiBreadcrumbItem(string name, string fullPath, bool isLast = false)
+    {
+        Name = name;
+        FullPath = fullPath;
+        IsLast = isLast;
+    }
+}
+
 public sealed class UiFileItem
 {
     public ItemInfo Raw { get; }
     public string Name => Raw.Name;
     public string Path => Raw.Path;
     public bool IsFolder => Raw.Kind == ItemKind.Folder;
-    public string IconGlyph => IsFolder ? "📁" : "📄";
+
+    public string IconGlyph
+    {
+        get
+        {
+            if (IsFolder) return "📁";
+            var ext = System.IO.Path.GetExtension(Name).ToLowerInvariant();
+            return ext switch
+            {
+                ".pdf" => "📕",
+                ".txt" or ".md" or ".doc" or ".docx" => "📄",
+                ".cs" or ".json" or ".xml" or ".yml" or ".yaml" or ".axaml" => "📜",
+                ".png" or ".jpg" or ".jpeg" or ".gif" or ".svg" => "🖼️",
+                ".zip" or ".rar" or ".tar" or ".gz" or ".7z" => "📦",
+                ".bin" or ".dat" or ".sqlite" or ".db" => "🗃️",
+                _ => "📄"
+            };
+        }
+    }
+
     public string SizeString => IsFolder ? "-" : FormatBytes(Raw.Size);
     public string VersionString => IsFolder ? "-" : $"v{Raw.CurrentVersion}";
     public string OwnerString => Raw.OwnerId;

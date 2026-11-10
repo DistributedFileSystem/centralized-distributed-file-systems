@@ -18,6 +18,8 @@ public sealed class FileBrowserViewModel : ViewModelBase
     private UiFileItem? _selectedItem;
     private string _statusText = "";
     private bool _isLoading;
+    private string _searchQuery = "";
+    private bool _isManualPathMode;
 
     // Notification banner
     private string _notificationMessage = "";
@@ -36,13 +38,22 @@ public sealed class FileBrowserViewModel : ViewModelBase
     private bool _isMoveDialogOpen;
     private string _moveTargetPath = "";
 
+    private bool _isPropertiesDialogOpen;
+
     public ObservableCollection<UiFileItem> Items { get; } = [];
     public ObservableCollection<UiDirectoryNode> RootNodes { get; } = [];
+    public ObservableCollection<UiBreadcrumbItem> Breadcrumbs { get; } = [];
 
     public string CurrentPath
     {
         get => _currentPath;
-        set => SetProperty(ref _currentPath, value);
+        set
+        {
+            if (SetProperty(ref _currentPath, value))
+            {
+                RebuildBreadcrumbs(value);
+            }
+        }
     }
 
     public UiFileItem? SelectedItem
@@ -53,11 +64,45 @@ public sealed class FileBrowserViewModel : ViewModelBase
             SetProperty(ref _selectedItem, value);
             OnPropertyChanged(nameof(HasSelection));
             OnPropertyChanged(nameof(CanDeleteOrRename));
+            OnPropertyChanged(nameof(CanDownload));
         }
     }
 
     public bool HasSelection => _selectedItem != null;
     public bool CanDeleteOrRename => _selectedItem != null && !IsLoading;
+    public bool CanDownload => _selectedItem != null && !_selectedItem.IsFolder;
+
+    public string SearchQuery
+    {
+        get => _searchQuery;
+        set
+        {
+            if (SetProperty(ref _searchQuery, value))
+            {
+                OnPropertyChanged(nameof(FilteredItems));
+                OnPropertyChanged(nameof(HasItems));
+                OnPropertyChanged(nameof(IsEmpty));
+            }
+        }
+    }
+
+    public bool IsManualPathMode
+    {
+        get => _isManualPathMode;
+        set => SetProperty(ref _isManualPathMode, value);
+    }
+
+    public IEnumerable<UiFileItem> FilteredItems
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(_searchQuery)) return Items;
+            return Items.Where(i => i.Name.Contains(_searchQuery.Trim(), StringComparison.OrdinalIgnoreCase));
+        }
+    }
+
+    public bool HasItems => FilteredItems.Any();
+    public bool IsEmpty => !HasItems && !IsLoading;
 
     public string StatusText
     {
@@ -72,6 +117,7 @@ public sealed class FileBrowserViewModel : ViewModelBase
         {
             SetProperty(ref _isLoading, value);
             OnPropertyChanged(nameof(CanDeleteOrRename));
+            OnPropertyChanged(nameof(IsEmpty));
         }
     }
 
@@ -94,7 +140,7 @@ public sealed class FileBrowserViewModel : ViewModelBase
 
     public bool HasNotification => !string.IsNullOrEmpty(_notificationMessage);
 
-    // Create Folder Dialog Properties
+    // Dialog Properties
     public bool IsCreateFolderDialogOpen
     {
         get => _isCreateFolderDialogOpen;
@@ -107,7 +153,6 @@ public sealed class FileBrowserViewModel : ViewModelBase
         set => SetProperty(ref _newFolderName, value);
     }
 
-    // Rename Dialog Properties
     public bool IsRenameDialogOpen
     {
         get => _isRenameDialogOpen;
@@ -120,7 +165,6 @@ public sealed class FileBrowserViewModel : ViewModelBase
         set => SetProperty(ref _renameNewName, value);
     }
 
-    // Delete Dialog Properties
     public bool IsDeleteDialogOpen
     {
         get => _isDeleteDialogOpen;
@@ -133,7 +177,6 @@ public sealed class FileBrowserViewModel : ViewModelBase
         set => SetProperty(ref _deletePromptMessage, value);
     }
 
-    // Move Dialog Properties
     public bool IsMoveDialogOpen
     {
         get => _isMoveDialogOpen;
@@ -146,12 +189,21 @@ public sealed class FileBrowserViewModel : ViewModelBase
         set => SetProperty(ref _moveTargetPath, value);
     }
 
+    public bool IsPropertiesDialogOpen
+    {
+        get => _isPropertiesDialogOpen;
+        set => SetProperty(ref _isPropertiesDialogOpen, value);
+    }
+
     // Commands
     public ICommand RefreshCommand { get; }
     public ICommand NavigateUpCommand { get; }
     public ICommand OpenItemCommand { get; }
     public ICommand SelectTreeNodeCommand { get; }
     public ICommand DismissNotificationCommand { get; }
+    public ICommand NavigateBreadcrumbCommand { get; }
+    public ICommand TogglePathEditModeCommand { get; }
+    public ICommand DownloadItemCommand { get; }
 
     // Dialog Commands
     public ICommand OpenCreateFolderDialogCommand { get; }
@@ -170,6 +222,12 @@ public sealed class FileBrowserViewModel : ViewModelBase
     public ICommand ConfirmMoveCommand { get; }
     public ICommand CancelMoveCommand { get; }
 
+    public ICommand OpenPropertiesDialogCommand { get; }
+    public ICommand ClosePropertiesDialogCommand { get; }
+
+    // Action event for outside listeners (e.g. MainViewModel transfer queue)
+    public Action<UiFileItem>? DownloadRequested { get; set; }
+
     public FileBrowserViewModel(IDfsClient client)
     {
         _client = client;
@@ -181,15 +239,42 @@ public sealed class FileBrowserViewModel : ViewModelBase
         root.Children.Add(projects);
         RootNodes.Add(root);
 
+        RebuildBreadcrumbs(CurrentPath);
+
         RefreshCommand = new RelayCommand(async () => await LoadDirectoryAsync(CurrentPath));
         NavigateUpCommand = new RelayCommand(async () => await NavigateUpAsync());
         DismissNotificationCommand = new RelayCommand(() => NotificationMessage = "");
+        TogglePathEditModeCommand = new RelayCommand(() => IsManualPathMode = !IsManualPathMode);
+
+        NavigateBreadcrumbCommand = new RelayCommand(async param =>
+        {
+            if (param is UiBreadcrumbItem b)
+            {
+                await LoadDirectoryAsync(b.FullPath);
+            }
+        });
 
         OpenItemCommand = new RelayCommand(async param =>
         {
-            if (param is UiFileItem item && item.IsFolder)
+            if (param is UiFileItem item)
             {
-                await LoadDirectoryAsync(item.Path);
+                if (item.IsFolder)
+                {
+                    await LoadDirectoryAsync(item.Path);
+                }
+                else
+                {
+                    ExecuteDownload(item);
+                }
+            }
+        });
+
+        DownloadItemCommand = new RelayCommand(param =>
+        {
+            var target = param as UiFileItem ?? SelectedItem;
+            if (target != null && !target.IsFolder)
+            {
+                ExecuteDownload(target);
             }
         });
 
@@ -201,7 +286,7 @@ public sealed class FileBrowserViewModel : ViewModelBase
             }
         });
 
-        // Create Folder
+        // Dialogs
         OpenCreateFolderDialogCommand = new RelayCommand(() =>
         {
             NewFolderName = "";
@@ -210,7 +295,6 @@ public sealed class FileBrowserViewModel : ViewModelBase
         ConfirmCreateFolderCommand = new RelayCommand(async () => await ExecuteCreateFolderAsync());
         CancelCreateFolderCommand = new RelayCommand(() => IsCreateFolderDialogOpen = false);
 
-        // Rename
         OpenRenameDialogCommand = new RelayCommand(() =>
         {
             if (SelectedItem == null) return;
@@ -220,7 +304,6 @@ public sealed class FileBrowserViewModel : ViewModelBase
         ConfirmRenameCommand = new RelayCommand(async () => await ExecuteRenameAsync());
         CancelRenameCommand = new RelayCommand(() => IsRenameDialogOpen = false);
 
-        // Delete
         OpenDeleteDialogCommand = new RelayCommand(() =>
         {
             if (SelectedItem == null) return;
@@ -230,7 +313,6 @@ public sealed class FileBrowserViewModel : ViewModelBase
         ConfirmDeleteCommand = new RelayCommand(async () => await ExecuteDeleteAsync());
         CancelDeleteCommand = new RelayCommand(() => IsDeleteDialogOpen = false);
 
-        // Move
         OpenMoveDialogCommand = new RelayCommand(() =>
         {
             if (SelectedItem == null) return;
@@ -239,6 +321,12 @@ public sealed class FileBrowserViewModel : ViewModelBase
         });
         ConfirmMoveCommand = new RelayCommand(async () => await ExecuteMoveAsync());
         CancelMoveCommand = new RelayCommand(() => IsMoveDialogOpen = false);
+
+        OpenPropertiesDialogCommand = new RelayCommand(() =>
+        {
+            if (SelectedItem != null) IsPropertiesDialogOpen = true;
+        });
+        ClosePropertiesDialogCommand = new RelayCommand(() => IsPropertiesDialogOpen = false);
     }
 
     public async Task LoadDirectoryAsync(string path)
@@ -263,7 +351,10 @@ public sealed class FileBrowserViewModel : ViewModelBase
 
             var fileCount = Items.Count(i => !i.IsFolder);
             var folderCount = Items.Count(i => i.IsFolder);
-            StatusText = $"{Items.Count} mục ({folderCount} thư mục, {fileCount} tệp)";
+            StatusText = $"{Items.Count} mục ({folderCount} thư mục, {fileCount} tệp tin)";
+            OnPropertyChanged(nameof(FilteredItems));
+            OnPropertyChanged(nameof(HasItems));
+            OnPropertyChanged(nameof(IsEmpty));
         }
         catch (DfsException ex)
         {
@@ -285,6 +376,28 @@ public sealed class FileBrowserViewModel : ViewModelBase
         {
             IsLoading = false;
         }
+    }
+
+    private void RebuildBreadcrumbs(string path)
+    {
+        Breadcrumbs.Clear();
+        Breadcrumbs.Add(new UiBreadcrumbItem("🏠 Root", "/", path == "/"));
+
+        if (string.IsNullOrEmpty(path) || path == "/") return;
+
+        var parts = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        var cur = "";
+        for (int i = 0; i < parts.Length; i++)
+        {
+            cur += "/" + parts[i];
+            Breadcrumbs.Add(new UiBreadcrumbItem(parts[i], cur, i == parts.Length - 1));
+        }
+    }
+
+    private void ExecuteDownload(UiFileItem item)
+    {
+        DownloadRequested?.Invoke(item);
+        ShowNotification($"Đã xếp tệp '{item.Name}' vào Hàng đợi truyền tải (Download).", isError: false);
     }
 
     private async Task NavigateUpAsync()
@@ -322,7 +435,6 @@ public sealed class FileBrowserViewModel : ViewModelBase
             }
             catch (NotSupportedException)
             {
-                // In-memory demo fallback for FakeDfsClient
                 created = new ItemInfo(
                     Id: $"i-{Guid.NewGuid():N}"[..8],
                     Path: folderPath,
@@ -338,6 +450,7 @@ public sealed class FileBrowserViewModel : ViewModelBase
             AddFolderToTree(folderPath, folderName);
             ShowNotification($"Đã tạo thư mục '{folderName}' thành công.", isError: false);
             StatusText = $"Đã tạo thư mục: {folderPath}";
+            OnPropertyChanged(nameof(FilteredItems));
         }
         catch (DfsException ex)
         {
@@ -386,7 +499,6 @@ public sealed class FileBrowserViewModel : ViewModelBase
             }
             catch (NotSupportedException)
             {
-                // In-memory demo fallback for FakeDfsClient
                 renamed = new ItemInfo(
                     Id: targetItem.Raw.Id,
                     Path: newPath,
@@ -407,6 +519,7 @@ public sealed class FileBrowserViewModel : ViewModelBase
 
             ShowNotification($"Đã đổi tên '{targetItem.Name}' thành '{newName}'.", isError: false);
             StatusText = $"Đã đổi tên: {newPath}";
+            OnPropertyChanged(nameof(FilteredItems));
         }
         catch (DfsException ex)
         {
@@ -437,15 +550,13 @@ public sealed class FileBrowserViewModel : ViewModelBase
             {
                 await _client.DeleteItemAsync(targetItem.Path);
             }
-            catch (NotSupportedException)
-            {
-                // In-memory demo fallback for FakeDfsClient
-            }
+            catch (NotSupportedException) { }
 
             Items.Remove(targetItem);
             SelectedItem = null;
             ShowNotification($"Đã xóa '{targetItem.Name}' thành công.", isError: false);
             StatusText = $"Đã xóa mục: {targetItem.Path}";
+            OnPropertyChanged(nameof(FilteredItems));
         }
         catch (DfsException ex)
         {
@@ -478,26 +589,12 @@ public sealed class FileBrowserViewModel : ViewModelBase
 
         try
         {
-            ItemInfo moved;
             try
             {
-                moved = await _client.MoveAsync(targetItem.Path, destinationFolder);
+                await _client.MoveAsync(targetItem.Path, destinationFolder);
             }
-            catch (NotSupportedException)
-            {
-                var newPath = destinationFolder == "/" ? $"/{targetItem.Name}" : $"{destinationFolder}/{targetItem.Name}";
-                moved = new ItemInfo(
-                    Id: targetItem.Raw.Id,
-                    Path: newPath,
-                    Name: targetItem.Name,
-                    Kind: targetItem.Raw.Kind,
-                    Size: targetItem.Raw.Size,
-                    OwnerId: targetItem.Raw.OwnerId,
-                    CurrentVersion: targetItem.Raw.CurrentVersion,
-                    ModifiedAt: DateTime.UtcNow);
-            }
+            catch (NotSupportedException) { }
 
-            // Remove from current view if moved outside
             if (destinationFolder != CurrentPath)
             {
                 Items.Remove(targetItem);
@@ -506,6 +603,7 @@ public sealed class FileBrowserViewModel : ViewModelBase
 
             ShowNotification($"Đã di chuyển '{targetItem.Name}' sang '{destinationFolder}'.", isError: false);
             StatusText = $"Đã di chuyển tới: {destinationFolder}";
+            OnPropertyChanged(nameof(FilteredItems));
         }
         catch (DfsException ex)
         {

@@ -43,6 +43,12 @@ public sealed class TransferManagerViewModel : ViewModelBase
     public bool IsActiveFilter => _filter == "active";
     public bool IsCompletedFilter => _filter == "completed";
 
+    public string AllFilterHeader => $"Tất cả ({Transfers.Count})";
+    public string ActiveFilterHeader => $"Đang truyền ({Transfers.Count(t => t.IsActive)})";
+    public string CompletedFilterHeader => $"Hoàn tất ({Transfers.Count(t => t.IsCompleted)})";
+    public string ActiveCountText => Transfers.Count(t => t.IsActive).ToString();
+    public string TotalSpeedText => Transfers.Any(t => t.IsActive) ? "12.4 MB/s" : "0 MB/s";
+
     public IEnumerable<UiTransferItem> FilteredTransfers => _filter switch
     {
         "active" => Transfers.Where(t => t.IsActive),

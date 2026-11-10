@@ -91,6 +91,12 @@ public sealed class MainViewModel : ViewModelBase
         LoginVm = new LoginViewModel(_client, OnLoginSuccess);
         FileBrowserVm = new FileBrowserViewModel(_client);
         TransferManagerVm = new TransferManagerViewModel(_client);
+
+        FileBrowserVm.DownloadRequested = item =>
+        {
+            var size = item.Raw.Size > 0 ? item.Raw.Size : 2 * 1024 * 1024;
+            TransferManagerVm.QueueNewDownload(item.Path, item.Name, size);
+        };
         AdminPanelVm = new AdminPanelViewModel(_client);
         ClusterStatusVm = new ClusterStatusViewModel(_client);
 

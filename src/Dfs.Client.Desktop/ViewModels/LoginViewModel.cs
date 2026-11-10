@@ -14,7 +14,8 @@ public sealed class LoginViewModel : ViewModelBase
     private string _username = "demo";
     private string _password = "demo";
     private string _endpoint = "127.0.0.1:7000";
-    private bool _rememberMe;
+    private bool _rememberMe = true;
+    private bool _isPasswordRevealed;
     private string _errorMessage = "";
     private bool _isBusy;
 
@@ -42,6 +43,22 @@ public sealed class LoginViewModel : ViewModelBase
         set => SetProperty(ref _rememberMe, value);
     }
 
+    public bool IsPasswordRevealed
+    {
+        get => _isPasswordRevealed;
+        set
+        {
+            if (SetProperty(ref _isPasswordRevealed, value))
+            {
+                OnPropertyChanged(nameof(PasswordChar));
+                OnPropertyChanged(nameof(RevealButtonText));
+            }
+        }
+    }
+
+    public char PasswordChar => _isPasswordRevealed ? '\0' : '•';
+    public string RevealButtonText => _isPasswordRevealed ? "🙈 Ẩn" : "👁️ Hiện";
+
     public string ErrorMessage
     {
         get => _errorMessage;
@@ -61,12 +78,24 @@ public sealed class LoginViewModel : ViewModelBase
     }
 
     public ICommand LoginCommand { get; }
+    public ICommand FillDemoAccountCommand { get; }
+    public ICommand TogglePasswordRevealCommand { get; }
+    public ICommand DismissErrorCommand { get; }
 
     public LoginViewModel(IDfsClient client, Action<LoginResponse> onLoginSuccess)
     {
         _client = client;
         _onLoginSuccess = onLoginSuccess;
+
         LoginCommand = new RelayCommand(async () => await ExecuteLoginAsync());
+        FillDemoAccountCommand = new RelayCommand(() =>
+        {
+            Username = "demo";
+            Password = "demo";
+            ErrorMessage = "";
+        });
+        TogglePasswordRevealCommand = new RelayCommand(() => IsPasswordRevealed = !IsPasswordRevealed);
+        DismissErrorCommand = new RelayCommand(() => ErrorMessage = "");
     }
 
     private async Task ExecuteLoginAsync()

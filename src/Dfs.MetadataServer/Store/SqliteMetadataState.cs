@@ -25,29 +25,7 @@ internal sealed class SqliteMetadataState : IDisposable
         if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
         _db = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path, Pooling = false }.ToString());
         _db.Open();
-        Exec("""
-            CREATE TABLE IF NOT EXISTS users (
-              id TEXT PRIMARY KEY,
-              username TEXT NOT NULL UNIQUE,
-              password_hash TEXT NOT NULL,
-              salt TEXT NOT NULL,
-              disabled INTEGER NOT NULL DEFAULT 0,
-              created_at TEXT NOT NULL);
-            CREATE TABLE IF NOT EXISTS items (
-              id TEXT PRIMARY KEY,
-              parent_id TEXT NOT NULL,
-              name TEXT NOT NULL,
-              kind TEXT NOT NULL,
-              owner_id TEXT NOT NULL,
-              current_version INTEGER NOT NULL DEFAULT 0,
-              size INTEGER NOT NULL DEFAULT 0,
-              modified_at TEXT NOT NULL,
-              UNIQUE (parent_id, name));
-            CREATE TABLE IF NOT EXISTS applied_seq (
-              id INTEGER PRIMARY KEY CHECK (id = 1),
-              seq INTEGER NOT NULL);
-            INSERT OR IGNORE INTO applied_seq (id, seq) VALUES (1, 0);
-            """);
+        MetadataSchema.Initialize(_db);
     }
 
     /// <summary>Gets the seq of the last applied op log line.</summary>

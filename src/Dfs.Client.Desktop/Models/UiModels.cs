@@ -290,50 +290,115 @@ public sealed class UiNodeItem
     }
 }
 
-public sealed class UiUserItem
+public sealed class UiUserItem : INotifyPropertyChanged
 {
+    private bool _disabled;
+    private string _groupsText = "";
+
     public string Id { get; }
     public string Username { get; }
-    public bool Disabled { get; }
+
+    public bool Disabled
+    {
+        get => _disabled;
+        set
+        {
+            if (_disabled != value)
+            {
+                _disabled = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Disabled)));
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(StatusText)));
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(StatusColor)));
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ToggleActionText)));
+            }
+        }
+    }
+
     public string StatusText => Disabled ? "Đã khóa" : "Hoạt động";
     public string StatusColor => Disabled ? "#DC3545" : "#28A745";
-    public string GroupsText { get; }
+    public string ToggleActionText => Disabled ? "Mở khóa" : "Khóa tài khoản";
+
+    public string GroupsText
+    {
+        get => _groupsText;
+        set
+        {
+            if (_groupsText != value)
+            {
+                _groupsText = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(GroupsText)));
+            }
+        }
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
 
     public UiUserItem(UserInfo raw)
     {
         Id = raw.Id;
         Username = raw.Username;
-        Disabled = raw.Disabled;
-        GroupsText = raw.GroupIds.Count > 0 ? string.Join(", ", raw.GroupIds) : "Không có";
+        _disabled = raw.Disabled;
+        _groupsText = raw.GroupIds.Count > 0 ? string.Join(", ", raw.GroupIds) : "Không có";
     }
 
     public UiUserItem(string id, string username, bool disabled, string groups)
     {
         Id = id;
         Username = username;
-        Disabled = disabled;
-        GroupsText = groups;
+        _disabled = disabled;
+        _groupsText = groups;
     }
 }
 
-public sealed class UiGroupItem
+public sealed class UiGroupItem : INotifyPropertyChanged
 {
+    private string _name = "";
+    private string _memberCountText = "";
+
     public string Id { get; }
-    public string Name { get; }
-    public string MemberCountText { get; }
+    public ObservableCollection<string> Members { get; } = [];
+
+    public string Name
+    {
+        get => _name;
+        set
+        {
+            if (_name != value)
+            {
+                _name = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Name)));
+            }
+        }
+    }
+
+    public string MemberCountText
+    {
+        get => _memberCountText;
+        set
+        {
+            if (_memberCountText != value)
+            {
+                _memberCountText = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(MemberCountText)));
+            }
+        }
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
 
     public UiGroupItem(GroupInfo raw)
     {
         Id = raw.Id;
-        Name = raw.Name;
-        MemberCountText = $"{raw.MemberIds.Count} thành viên";
+        _name = raw.Name;
+        foreach (var m in raw.MemberIds) Members.Add(m);
+        _memberCountText = $"{Members.Count} thành viên";
     }
 
     public UiGroupItem(string id, string name, int count)
     {
         Id = id;
-        Name = name;
-        MemberCountText = $"{count} thành viên";
+        _name = name;
+        _memberCountText = $"{count} thành viên";
     }
 }
 
@@ -344,6 +409,7 @@ public sealed class UiGrantItem
     public string Subject { get; }
     public string TargetPath { get; }
     public string InheritText { get; }
+    public string SourceText { get; }
 
     public UiGrantItem(GrantInfo raw)
     {
@@ -352,14 +418,16 @@ public sealed class UiGrantItem
         Subject = $"{raw.SubjectType}: {raw.SubjectId}";
         TargetPath = raw.Path ?? "(Hệ thống toàn cục)";
         InheritText = "Kế thừa";
+        SourceText = raw.Path != null ? "Trực tiếp" : "Toàn cục";
     }
 
-    public UiGrantItem(string id, string roleId, string subject, string path, bool inherit)
+    public UiGrantItem(string id, string roleId, string subject, string path, bool inherit, string source = "Trực tiếp")
     {
         Id = id;
         RoleId = roleId;
         Subject = subject;
         TargetPath = path;
         InheritText = inherit ? "Có" : "Không";
+        SourceText = source;
     }
 }

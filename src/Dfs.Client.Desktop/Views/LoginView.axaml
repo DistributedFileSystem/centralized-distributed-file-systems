@@ -8,59 +8,65 @@
              x:DataType="vm:LoginViewModel">
 
     <Grid Background="#F0F4F8">
-        <Border Width="420"
-                Padding="36,40"
+        <Border Width="460"
+                Padding="36,32"
                 Background="#FFFFFF"
                 CornerRadius="8"
                 BoxShadow="0 8 24 0 #20000000"
                 HorizontalAlignment="Center"
                 VerticalAlignment="Center">
-            <StackPanel Spacing="16">
+            <StackPanel Spacing="14">
                 <!-- App Logo & Title -->
-                <StackPanel HorizontalAlignment="Center" Spacing="6">
-                    <TextBlock Text="🗄️" FontSize="44" HorizontalAlignment="Center" />
-                    <TextBlock Text="Centralized DFS"
-                               FontSize="22"
+                <StackPanel HorizontalAlignment="Center" Spacing="4">
+                    <TextBlock Text="🗄️" FontSize="40" HorizontalAlignment="Center" />
+                    <TextBlock Text="ĐĂNG NHẬP HỆ THỐNG"
+                               FontSize="18"
                                FontWeight="Bold"
                                Foreground="#0066CC"
                                HorizontalAlignment="Center" />
-                    <TextBlock Text="Hệ thống tệp phân tán (LAN 5 Node)"
+                    <TextBlock Text="Centralized Distributed File System (DFS)"
                                FontSize="12"
                                Foreground="#6C757D"
                                HorizontalAlignment="Center" />
                 </StackPanel>
 
-                <Separator Margin="0,4" Background="#DEE2E6" />
+                <Separator Margin="0,2" Background="#DEE2E6" />
 
-                <!-- Error Alert -->
-                <Border Background="#FDE8E8"
-                        BorderBrush="#F8B4B4"
+                <!-- Error Banner -->
+                <Border Background="#F8D7DA"
+                        BorderBrush="#F5C6CB"
                         BorderThickness="1"
                         CornerRadius="4"
-                        Padding="10,8"
+                        Padding="12,10"
                         IsVisible="{Binding HasError}">
-                    <TextBlock Text="{Binding ErrorMessage}"
-                               Foreground="#DC3545"
-                               FontSize="12"
-                               TextWrapping="Wrap" />
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Text="⚠️" FontSize="14" VerticalAlignment="Top" />
+                        <TextBlock Text="{Binding ErrorMessage}"
+                                   Foreground="#721C24"
+                                   FontSize="12"
+                                   FontWeight="Medium"
+                                   TextWrapping="Wrap"
+                                   MaxWidth="360" />
+                    </StackPanel>
                 </Border>
 
                 <!-- Username Field -->
-                <StackPanel Spacing="6">
-                    <TextBlock Text="Tên đăng nhập"
+                <StackPanel Spacing="4">
+                    <TextBlock Text="Tên đăng nhập:"
                                FontSize="12"
                                FontWeight="SemiBold"
                                Foreground="#212529" />
                     <TextBox Text="{Binding Username}"
-                             PlaceholderText="demo"
+                             PlaceholderText="Ví dụ: demo hoặc an.nguyen"
                              Height="36"
                              CornerRadius="4"
-                             BorderBrush="#DEE2E6" />
+                             BorderBrush="#DEE2E6"
+                             IsEnabled="{Binding !IsBusy}" />
                 </StackPanel>
 
                 <!-- Password Field -->
-                <StackPanel Spacing="6">
-                    <TextBlock Text="Mật khẩu"
+                <StackPanel Spacing="4">
+                    <TextBlock Text="Mật khẩu:"
                                FontSize="12"
                                FontWeight="SemiBold"
                                Foreground="#212529" />
@@ -69,31 +75,62 @@
                              PasswordChar="•"
                              Height="36"
                              CornerRadius="4"
-                             BorderBrush="#DEE2E6" />
+                             BorderBrush="#DEE2E6"
+                             IsEnabled="{Binding !IsBusy}" />
                 </StackPanel>
 
-                <!-- Note / Demo hint -->
-                <TextBlock Text="💡 Gợi ý thử nghiệm: tài khoản 'demo' / mật khẩu 'demo'"
-                           FontSize="11"
-                           Foreground="#6C757D"
-                           FontStyle="Italic"
-                           HorizontalAlignment="Center" />
+                <!-- Metadata Server Endpoint Field -->
+                <StackPanel Spacing="4">
+                    <TextBlock Text="Máy chủ Metadata:"
+                               FontSize="12"
+                               FontWeight="SemiBold"
+                               Foreground="#212529" />
+                    <TextBox Text="{Binding Endpoint}"
+                             PlaceholderText="127.0.0.1:7000"
+                             Height="36"
+                             CornerRadius="4"
+                             BorderBrush="#DEE2E6"
+                             FontFamily="Consolas, Cascadia Mono, monospace"
+                             IsEnabled="{Binding !IsBusy}" />
+                </StackPanel>
+
+                <!-- Remember Me Checkbox -->
+                <CheckBox Content="Ghi nhớ tên đăng nhập trên máy này"
+                          IsChecked="{Binding RememberMe}"
+                          FontSize="12"
+                          Foreground="#495057"
+                          IsEnabled="{Binding !IsBusy}" />
 
                 <!-- Submit Button -->
-                <Button Content="Đăng nhập"
+                <Button Content="ĐĂNG NHẬP"
                         Command="{Binding LoginCommand}"
                         IsEnabled="{Binding !IsBusy}"
                         Height="40"
                         Background="#0066CC"
                         Foreground="#FFFFFF"
-                        FontWeight="SemiBold"
+                        FontWeight="Bold"
                         CornerRadius="4"
                         HorizontalAlignment="Stretch"
                         HorizontalContentAlignment="Center"
                         VerticalContentAlignment="Center"
-                        Margin="0,8,0,0" />
+                        Margin="0,4,0,0" />
+
+                <!-- Loading Indicator -->
+                <StackPanel Spacing="4" IsVisible="{Binding IsBusy}">
+                    <TextBlock Text="Đang kết nối tới máy chủ Metadata..."
+                               FontSize="11"
+                               Foreground="#0066CC"
+                               HorizontalAlignment="Center" />
+                    <ProgressBar IsIndeterminate="True" Height="4" />
+                </StackPanel>
+
+                <!-- Hint -->
+                <TextBlock Text="💡 Gợi ý thử nghiệm: tài khoản 'demo' / mật khẩu 'demo'"
+                           FontSize="11"
+                           Foreground="#6C757D"
+                           FontStyle="Italic"
+                           HorizontalAlignment="Center" />
             </StackPanel>
         </Border>
     </Grid>
 </UserControl>
-

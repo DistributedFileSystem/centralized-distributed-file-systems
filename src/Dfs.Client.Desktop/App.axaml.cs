@@ -1,6 +1,8 @@
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
+using Dfs.Client.Desktop.ViewModels;
+using Dfs.Fakes;
 
 namespace Dfs.Client.Desktop;
 
@@ -15,7 +17,9 @@ public partial class App : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            desktop.MainWindow = new MainWindow();
+            var fakeClient = new FakeDfsClient();
+            var mainVm = new MainViewModel(fakeClient);
+            desktop.MainWindow = new MainWindow(mainVm);
         }
 
         base.OnFrameworkInitializationCompleted();

@@ -1,4 +1,4 @@
-﻿using Dfs.MetadataServer.Config;
+using Dfs.MetadataServer.Config;
 using Dfs.MetadataServer.Hosting;
 
 var config = MetadataServerConfig.FromEnvironment();

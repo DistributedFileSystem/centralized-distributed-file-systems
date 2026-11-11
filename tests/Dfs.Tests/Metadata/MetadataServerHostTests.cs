@@ -126,3 +126,4 @@ public class MetadataServerHostTests : IDisposable
         Assert.False(host.IsRunning);
     }
 }
+

@@ -1,0 +1,99 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:Dfs.Client.Desktop.ViewModels"
+             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="600"
+             x:Class="Dfs.Client.Desktop.Views.LoginView"
+             x:DataType="vm:LoginViewModel">
+
+    <Grid Background="#F0F4F8">
+        <Border Width="420"
+                Padding="36,40"
+                Background="#FFFFFF"
+                CornerRadius="8"
+                BoxShadow="0 8 24 0 #20000000"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center">
+            <StackPanel Spacing="16">
+                <!-- App Logo & Title -->
+                <StackPanel HorizontalAlignment="Center" Spacing="6">
+                    <TextBlock Text="🗄️" FontSize="44" HorizontalAlignment="Center" />
+                    <TextBlock Text="Centralized DFS"
+                               FontSize="22"
+                               FontWeight="Bold"
+                               Foreground="#0066CC"
+                               HorizontalAlignment="Center" />
+                    <TextBlock Text="Hệ thống tệp phân tán (LAN 5 Node)"
+                               FontSize="12"
+                               Foreground="#6C757D"
+                               HorizontalAlignment="Center" />
+                </StackPanel>
+
+                <Separator Margin="0,4" Background="#DEE2E6" />
+
+                <!-- Error Alert -->
+                <Border Background="#FDE8E8"
+                        BorderBrush="#F8B4B4"
+                        BorderThickness="1"
+                        CornerRadius="4"
+                        Padding="10,8"
+                        IsVisible="{Binding HasError}">
+                    <TextBlock Text="{Binding ErrorMessage}"
+                               Foreground="#DC3545"
+                               FontSize="12"
+                               TextWrapping="Wrap" />
+                </Border>
+
+                <!-- Username Field -->
+                <StackPanel Spacing="6">
+                    <TextBlock Text="Tên đăng nhập"
+                               FontSize="12"
+                               FontWeight="SemiBold"
+                               Foreground="#212529" />
+                    <TextBox Text="{Binding Username}"
+                             PlaceholderText="demo"
+                             Height="36"
+                             CornerRadius="4"
+                             BorderBrush="#DEE2E6" />
+                </StackPanel>
+
+                <!-- Password Field -->
+                <StackPanel Spacing="6">
+                    <TextBlock Text="Mật khẩu"
+                               FontSize="12"
+                               FontWeight="SemiBold"
+                               Foreground="#212529" />
+                    <TextBox Text="{Binding Password}"
+                             PlaceholderText="••••••••"
+                             PasswordChar="•"
+                             Height="36"
+                             CornerRadius="4"
+                             BorderBrush="#DEE2E6" />
+                </StackPanel>
+
+                <!-- Note / Demo hint -->
+                <TextBlock Text="💡 Gợi ý thử nghiệm: tài khoản 'demo' / mật khẩu 'demo'"
+                           FontSize="11"
+                           Foreground="#6C757D"
+                           FontStyle="Italic"
+                           HorizontalAlignment="Center" />
+
+                <!-- Submit Button -->
+                <Button Content="Đăng nhập"
+                        Command="{Binding LoginCommand}"
+                        IsEnabled="{Binding !IsBusy}"
+                        Height="40"
+                        Background="#0066CC"
+                        Foreground="#FFFFFF"
+                        FontWeight="SemiBold"
+                        CornerRadius="4"
+                        HorizontalAlignment="Stretch"
+                        HorizontalContentAlignment="Center"
+                        VerticalContentAlignment="Center"
+                        Margin="0,8,0,0" />
+            </StackPanel>
+        </Border>
+    </Grid>
+</UserControl>
+

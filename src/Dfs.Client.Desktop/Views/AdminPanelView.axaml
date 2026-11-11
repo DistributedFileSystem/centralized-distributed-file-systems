@@ -1,0 +1,120 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:Dfs.Client.Desktop.ViewModels"
+             xmlns:m="using:Dfs.Client.Desktop.Models"
+             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="600"
+             x:Class="Dfs.Client.Desktop.Views.AdminPanelView"
+             x:DataType="vm:AdminPanelViewModel">
+
+    <Grid RowDefinitions="Auto,*" Background="#FFFFFF" Margin="24">
+        <!-- Header -->
+        <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,16">
+            <StackPanel Grid.Column="0" Spacing="4">
+                <TextBlock Text="Bảng điều khiển Quản trị (Admin Panel)"
+                           FontSize="18"
+                           FontWeight="Bold"
+                           Foreground="#212529" />
+                <TextBlock Text="Quản lý Người dùng (Users), Nhóm (Groups) và Cấp quyền (Grants RBAC)"
+                           FontSize="12"
+                           Foreground="#6C757D" />
+            </StackPanel>
+
+            <Button Grid.Column="1"
+                    Content="🔄 Đồng bộ"
+                    Command="{Binding RefreshCommand}"
+                    Padding="12,6"
+                    CornerRadius="4"
+                    Background="#FFFFFF"
+                    BorderBrush="#DEE2E6"
+                    BorderThickness="1" />
+        </Grid>
+
+        <!-- Tabs Content -->
+        <TabControl Grid.Row="1" SelectedIndex="{Binding SelectedTabIndex}">
+            <!-- Tab 1: Users -->
+            <TabItem Header="👤 Người dùng (Users)">
+                <Grid RowDefinitions="Auto,*" Margin="0,12,0,0">
+                    <!-- Table Header -->
+                    <Border Grid.Row="0" Background="#F1F3F5" BorderBrush="#DEE2E6" BorderThickness="1" CornerRadius="4,4,0,0" Padding="16,8">
+                        <Grid ColumnDefinitions="2*,2*,2*,3*">
+                            <TextBlock Grid.Column="0" Text="User ID" FontWeight="SemiBold" FontSize="12" />
+                            <TextBlock Grid.Column="1" Text="Tên đăng nhập" FontWeight="SemiBold" FontSize="12" />
+                            <TextBlock Grid.Column="2" Text="Trạng thái" FontWeight="SemiBold" FontSize="12" />
+                            <TextBlock Grid.Column="3" Text="Nhóm trực thuộc" FontWeight="SemiBold" FontSize="12" />
+                        </Grid>
+                    </Border>
+
+                    <ListBox Grid.Row="1" ItemsSource="{Binding Users}" BorderBrush="#DEE2E6" BorderThickness="1,0,1,1" CornerRadius="0,0,4,4">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="m:UiUserItem">
+                                <Grid ColumnDefinitions="2*,2*,2*,3*" Margin="0,4">
+                                    <TextBlock Grid.Column="0" Text="{Binding Id}" FontFamily="Consolas, monospace" FontSize="12" Foreground="#6C757D" />
+                                    <TextBlock Grid.Column="1" Text="{Binding Username}" FontWeight="SemiBold" FontSize="13" />
+                                    <TextBlock Grid.Column="2" Text="{Binding StatusText}" Foreground="{Binding StatusColor}" FontWeight="Bold" FontSize="12" />
+                                    <TextBlock Grid.Column="3" Text="{Binding GroupsText}" FontSize="12" Foreground="#495057" />
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
+            </TabItem>
+
+            <!-- Tab 2: Groups -->
+            <TabItem Header="👥 Nhóm quyền (Groups)">
+                <Grid RowDefinitions="Auto,*" Margin="0,12,0,0">
+                    <Border Grid.Row="0" Background="#F1F3F5" BorderBrush="#DEE2E6" BorderThickness="1" CornerRadius="4,4,0,0" Padding="16,8">
+                        <Grid ColumnDefinitions="3*,3*,3*">
+                            <TextBlock Grid.Column="0" Text="Group ID" FontWeight="SemiBold" FontSize="12" />
+                            <TextBlock Grid.Column="1" Text="Tên nhóm" FontWeight="SemiBold" FontSize="12" />
+                            <TextBlock Grid.Column="2" Text="Số lượng thành viên" FontWeight="SemiBold" FontSize="12" />
+                        </Grid>
+                    </Border>
+
+                    <ListBox Grid.Row="1" ItemsSource="{Binding Groups}" BorderBrush="#DEE2E6" BorderThickness="1,0,1,1" CornerRadius="0,0,4,4">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="m:UiGroupItem">
+                                <Grid ColumnDefinitions="3*,3*,3*" Margin="0,4">
+                                    <TextBlock Grid.Column="0" Text="{Binding Id}" FontFamily="Consolas, monospace" FontSize="12" Foreground="#6C757D" />
+                                    <TextBlock Grid.Column="1" Text="{Binding Name}" FontWeight="SemiBold" FontSize="13" />
+                                    <TextBlock Grid.Column="2" Text="{Binding MemberCountText}" FontSize="12" Foreground="#0066CC" />
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
+            </TabItem>
+
+            <!-- Tab 3: Grants -->
+            <TabItem Header="🛡️ Cấp quyền (Grants)">
+                <Grid RowDefinitions="Auto,*" Margin="0,12,0,0">
+                    <Border Grid.Row="0" Background="#F1F3F5" BorderBrush="#DEE2E6" BorderThickness="1" CornerRadius="4,4,0,0" Padding="16,8">
+                        <Grid ColumnDefinitions="2*,2*,2*,2*,1*">
+                            <TextBlock Grid.Column="0" Text="Grant ID" FontWeight="SemiBold" FontSize="12" />
+                            <TextBlock Grid.Column="1" Text="Vai trò (Role)" FontWeight="SemiBold" FontSize="12" />
+                            <TextBlock Grid.Column="2" Text="Đối tượng nhận quyền" FontWeight="SemiBold" FontSize="12" />
+                            <TextBlock Grid.Column="3" Text="Đường dẫn áp dụng" FontWeight="SemiBold" FontSize="12" />
+                            <TextBlock Grid.Column="4" Text="Kế thừa" FontWeight="SemiBold" FontSize="12" />
+                        </Grid>
+                    </Border>
+
+                    <ListBox Grid.Row="1" ItemsSource="{Binding Grants}" BorderBrush="#DEE2E6" BorderThickness="1,0,1,1" CornerRadius="0,0,4,4">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="m:UiGrantItem">
+                                <Grid ColumnDefinitions="2*,2*,2*,2*,1*" Margin="0,4">
+                                    <TextBlock Grid.Column="0" Text="{Binding Id}" FontFamily="Consolas, monospace" FontSize="12" Foreground="#6C757D" />
+                                    <TextBlock Grid.Column="1" Text="{Binding RoleId}" FontWeight="Bold" FontSize="12" Foreground="#0066CC" />
+                                    <TextBlock Grid.Column="2" Text="{Binding Subject}" FontSize="12" />
+                                    <TextBlock Grid.Column="3" Text="{Binding TargetPath}" FontFamily="Consolas, monospace" FontSize="12" />
+                                    <TextBlock Grid.Column="4" Text="{Binding InheritText}" FontSize="12" Foreground="#28A745" />
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
+            </TabItem>
+        </TabControl>
+    </Grid>
+</UserControl>
+

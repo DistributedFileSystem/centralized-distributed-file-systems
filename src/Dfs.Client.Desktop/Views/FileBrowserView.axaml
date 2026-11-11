@@ -1,0 +1,129 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:Dfs.Client.Desktop.ViewModels"
+             xmlns:m="using:Dfs.Client.Desktop.Models"
+             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="600"
+             x:Class="Dfs.Client.Desktop.Views.FileBrowserView"
+             x:DataType="vm:FileBrowserViewModel">
+
+    <Grid RowDefinitions="Auto,*,Auto" Background="#FFFFFF">
+        <!-- Toolbar -->
+        <Border Grid.Row="0"
+                Background="#F8F9FA"
+                BorderBrush="#DEE2E6"
+                BorderThickness="0,0,0,1"
+                Padding="16,10">
+            <Grid ColumnDefinitions="Auto,*,Auto" VerticalAlignment="Center">
+                <Button Grid.Column="0"
+                        Content="⬆ Lên một cấp"
+                        Command="{Binding NavigateUpCommand}"
+                        Padding="12,6"
+                        Margin="0,0,12,0"
+                        CornerRadius="4"
+                        Background="#FFFFFF"
+                        BorderBrush="#DEE2E6"
+                        BorderThickness="1" />
+
+                <!-- Current Path Box -->
+                <TextBox Grid.Column="1"
+                         Text="{Binding CurrentPath, Mode=TwoWay}"
+                         Height="34"
+                         VerticalContentAlignment="Center"
+                         CornerRadius="4"
+                         BorderBrush="#DEE2E6"
+                         FontFamily="Consolas, Cascadia Mono, monospace"
+                         FontSize="13" />
+
+                <Button Grid.Column="2"
+                        Content="🔄 Làm mới"
+                        Command="{Binding RefreshCommand}"
+                        Padding="12,6"
+                        Margin="12,0,0,0"
+                        CornerRadius="4"
+                        Background="#0066CC"
+                        Foreground="#FFFFFF"
+                        FontWeight="SemiBold" />
+            </Grid>
+        </Border>
+
+        <!-- Main Content Area: File List -->
+        <Grid Grid.Row="1" RowDefinitions="Auto,*">
+            <!-- Table Header -->
+            <Border Grid.Row="0"
+                    Background="#F1F3F5"
+                    BorderBrush="#DEE2E6"
+                    BorderThickness="0,0,0,1"
+                    Padding="16,8">
+                <Grid ColumnDefinitions="3*,1*,1*,1*,2*">
+                    <TextBlock Grid.Column="0" Text="Tên tệp / thư mục" FontWeight="SemiBold" FontSize="12" Foreground="#495057" />
+                    <TextBlock Grid.Column="1" Text="Kích thước" FontWeight="SemiBold" FontSize="12" Foreground="#495057" />
+                    <TextBlock Grid.Column="2" Text="Phiên bản" FontWeight="SemiBold" FontSize="12" Foreground="#495057" />
+                    <TextBlock Grid.Column="3" Text="Chủ sở hữu" FontWeight="SemiBold" FontSize="12" Foreground="#495057" />
+                    <TextBlock Grid.Column="4" Text="Sửa đổi lần cuối" FontWeight="SemiBold" FontSize="12" Foreground="#495057" />
+                </Grid>
+            </Border>
+
+            <!-- File Items List -->
+            <ListBox Grid.Row="1"
+                     ItemsSource="{Binding Items}"
+                     SelectedItem="{Binding SelectedItem}"
+                     Background="Transparent">
+                <ListBox.ItemTemplate>
+                    <DataTemplate x:DataType="m:UiFileItem">
+                        <Grid ColumnDefinitions="3*,1*,1*,1*,2*"
+                              VerticalAlignment="Center"
+                              Margin="0,2">
+                            <!-- Name & Icon -->
+                            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8">
+                                <TextBlock Text="{Binding IconGlyph}" FontSize="16" VerticalAlignment="Center" />
+                                <TextBlock Text="{Binding Name}"
+                                           FontWeight="{Binding IsFolder, Converter={x:Null}}"
+                                           VerticalAlignment="Center"
+                                           TextTrimming="CharacterEllipsis" />
+                            </StackPanel>
+
+                            <!-- Size -->
+                            <TextBlock Grid.Column="1" Text="{Binding SizeString}"
+                                       VerticalAlignment="Center"
+                                       Foreground="#6C757D"
+                                       FontSize="12" />
+
+                            <!-- Version -->
+                            <TextBlock Grid.Column="2" Text="{Binding VersionString}"
+                                       VerticalAlignment="Center"
+                                       Foreground="#0066CC"
+                                       FontWeight="SemiBold"
+                                       FontSize="12" />
+
+                            <!-- Owner -->
+                            <TextBlock Grid.Column="3" Text="{Binding OwnerString}"
+                                       VerticalAlignment="Center"
+                                       Foreground="#495057"
+                                       FontSize="12" />
+
+                            <!-- Modified -->
+                            <TextBlock Grid.Column="4" Text="{Binding ModifiedString}"
+                                       VerticalAlignment="Center"
+                                       Foreground="#6C757D"
+                                       FontSize="12" />
+                        </Grid>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </Grid>
+
+        <!-- Status Bar -->
+        <Border Grid.Row="2"
+                Background="#F8F9FA"
+                BorderBrush="#DEE2E6"
+                BorderThickness="0,1,0,0"
+                Padding="16,6">
+            <TextBlock Text="{Binding StatusText}"
+                       FontSize="12"
+                       Foreground="#6C757D" />
+        </Border>
+    </Grid>
+</UserControl>
+

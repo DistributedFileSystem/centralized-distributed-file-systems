@@ -1,9 +1,13 @@
 using System.Globalization;
+using Dfs.MetadataServer.Handlers;
 using Dfs.Shared.Commands;
 using Dfs.Shared.Messages;
 using Dfs.Shared.Metadata;
 using CreateFolder = Dfs.Shared.Commands.CreateFolder;
 using CreateUser = Dfs.Shared.Commands.CreateUser;
+using DeleteItem = Dfs.Shared.Commands.DeleteItem;
+using MoveItem = Dfs.Shared.Commands.MoveItem;
+using RenameItem = Dfs.Shared.Commands.RenameItem;
 using Microsoft.Data.Sqlite;
 
 namespace Dfs.MetadataServer.Store;
@@ -35,6 +39,9 @@ internal sealed class SqliteMetadataState : IDisposable
     public CommandResult? Validate(IMetadataCommand command) => command switch
     {
         CreateFolder c => ValidateFolder(c),
+        RenameItem c => ValidateRename(c),
+        MoveItem c => ValidateMove(c),
+        DeleteItem c => ValidateDelete(c),
         CreateUser c => Scalar("SELECT 1 FROM users WHERE username = $v OR id = $i", ("$v", c.Username), ("$i", c.UserId)) is not null
             ? CommandResult.Fail(ErrorCode.AlreadyExists, $"User '{c.Username}' already exists.")
             : null,
@@ -51,6 +58,19 @@ internal sealed class SqliteMetadataState : IDisposable
                 Exec(
                     "INSERT INTO items (id, parent_id, name, kind, owner_id, current_version, size, modified_at) VALUES ($id, $p, $n, 'Folder', $o, 0, 0, $t)",
                     ("$id", c.ItemId), ("$p", c.ParentId), ("$n", c.Name), ("$o", c.OwnerId), ("$t", Format(c.At)));
+                break;
+            case RenameItem c:
+                Exec(
+                    "UPDATE items SET name = $n, modified_at = $t WHERE id = $id",
+                    ("$n", c.NewName), ("$t", Format(c.At)), ("$id", c.ItemId));
+                break;
+            case MoveItem c:
+                Exec(
+                    "UPDATE items SET parent_id = $p, modified_at = $t WHERE id = $id",
+                    ("$p", c.NewParentId), ("$t", Format(c.At)), ("$id", c.ItemId));
+                break;
+            case DeleteItem c:
+                DeleteSubtree(c.ItemId);
                 break;
             case CreateUser c:
                 Exec(
@@ -99,7 +119,11 @@ internal sealed class SqliteMetadataState : IDisposable
 
     private CommandResult? ValidateFolder(CreateFolder c)
     {
-        if (string.IsNullOrWhiteSpace(c.Name) || c.Name.Contains('/'))
+        if (string.IsNullOrWhiteSpace(c.ItemId) || c.ItemId == RootId)
+            return CommandResult.Fail(ErrorCode.BadRequest, "Invalid item id.");
+        if (string.IsNullOrWhiteSpace(c.ParentId))
+            return CommandResult.Fail(ErrorCode.BadRequest, "Invalid parent id.");
+        if (!NamespacePath.IsValidSegment(c.Name))
             return CommandResult.Fail(ErrorCode.BadRequest, "Invalid folder name.");
         if (c.ParentId != RootId)
         {
@@ -111,6 +135,109 @@ internal sealed class SqliteMetadataState : IDisposable
             return CommandResult.Fail(ErrorCode.AlreadyExists, $"'{c.Name}' already exists.");
         return null;
     }
+
+    private CommandResult? ValidateRename(RenameItem c)
+    {
+        if (string.IsNullOrWhiteSpace(c.ItemId) || c.ItemId == RootId)
+            return CommandResult.Fail(ErrorCode.BadRequest, "Cannot rename root.");
+        if (!NamespacePath.IsValidSegment(c.NewName))
+            return CommandResult.Fail(ErrorCode.BadRequest, "Invalid item name.");
+        var parentId = Scalar("SELECT parent_id FROM items WHERE id = $v", ("$v", c.ItemId)) as string;
+        if (parentId is null)
+            return CommandResult.Fail(ErrorCode.NotFound, $"Item '{c.ItemId}' not found.");
+        if (HasSiblingWithName(parentId, c.NewName, c.ItemId))
+            return CommandResult.Fail(ErrorCode.AlreadyExists, $"'{c.NewName}' already exists.");
+        return null;
+    }
+
+    private CommandResult? ValidateMove(MoveItem c)
+    {
+        if (string.IsNullOrWhiteSpace(c.ItemId) || c.ItemId == RootId)
+            return CommandResult.Fail(ErrorCode.BadRequest, "Cannot move root.");
+        if (string.IsNullOrWhiteSpace(c.NewParentId))
+            return CommandResult.Fail(ErrorCode.BadRequest, "Invalid destination folder.");
+
+        var name = Scalar("SELECT name FROM items WHERE id = $v", ("$v", c.ItemId)) as string;
+        if (name is null)
+            return CommandResult.Fail(ErrorCode.NotFound, $"Item '{c.ItemId}' not found.");
+
+        if (c.NewParentId != RootId)
+        {
+            var destKind = Scalar("SELECT kind FROM items WHERE id = $v", ("$v", c.NewParentId)) as string;
+            if (destKind is null)
+                return CommandResult.Fail(ErrorCode.NotFound, $"Destination '{c.NewParentId}' not found.");
+            if (destKind != nameof(ItemKind.Folder))
+                return CommandResult.Fail(ErrorCode.BadRequest, "Destination is not a folder.");
+        }
+
+        if (IsAncestorOrSelf(c.ItemId, c.NewParentId))
+            return CommandResult.Fail(ErrorCode.BadRequest, "Cannot move a folder into itself or its descendant.");
+
+        if (HasSiblingWithName(c.NewParentId, name, c.ItemId))
+            return CommandResult.Fail(ErrorCode.AlreadyExists, $"'{name}' already exists in destination.");
+        return null;
+    }
+
+    private CommandResult? ValidateDelete(DeleteItem c)
+    {
+        if (string.IsNullOrWhiteSpace(c.ItemId) || c.ItemId == RootId)
+            return CommandResult.Fail(ErrorCode.BadRequest, "Cannot delete root.");
+        if (Scalar("SELECT 1 FROM items WHERE id = $v", ("$v", c.ItemId)) is null)
+            return CommandResult.Fail(ErrorCode.NotFound, $"Item '{c.ItemId}' not found.");
+        return null;
+    }
+
+    private bool HasSiblingWithName(string parentId, string name, string excludeItemId) =>
+        Scalar(
+            "SELECT 1 FROM items WHERE parent_id = $p AND name = $n AND id <> $id",
+            ("$p", parentId),
+            ("$n", name),
+            ("$id", excludeItemId)) is not null;
+
+    private bool IsAncestorOrSelf(string candidateAncestorId, string nodeId)
+    {
+        if (candidateAncestorId == nodeId)
+        {
+            return true;
+        }
+
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+        var current = nodeId;
+        while (current != RootId && visited.Add(current))
+        {
+            var parentId = Scalar("SELECT parent_id FROM items WHERE id = $v", ("$v", current)) as string;
+            if (parentId is null)
+            {
+                return false;
+            }
+            if (parentId == candidateAncestorId)
+            {
+                return true;
+            }
+            current = parentId;
+        }
+
+        return false;
+    }
+
+    private void DeleteSubtree(string itemId)
+    {
+        DeleteFromSubtreeTable("DELETE FROM grants WHERE item_id IN (SELECT id FROM subtree);", itemId);
+        DeleteFromSubtreeTable("DELETE FROM uploads WHERE item_id IN (SELECT id FROM subtree);", itemId);
+        DeleteFromSubtreeTable("DELETE FROM items WHERE id IN (SELECT id FROM subtree);", itemId);
+    }
+
+    private void DeleteFromSubtreeTable(string sqlDeleteStatement, string itemId) =>
+        Exec(
+            $"""
+            WITH RECURSIVE subtree(id) AS (
+                SELECT id FROM items WHERE id = $id
+                UNION ALL
+                SELECT i.id FROM items i JOIN subtree s ON i.parent_id = s.id
+            )
+            {sqlDeleteStatement}
+            """,
+            ("$id", itemId));
 
     private List<ItemInfo> ReadItems(string sql, params (string, object)[] args)
     {

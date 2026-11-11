@@ -1,21 +1,25 @@
 using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
+using System.Text.Json;
 using Dfs.MetadataServer.Config;
+using Dfs.MetadataServer.Handlers;
 using Dfs.MetadataServer.Store;
 using Dfs.Shared.Framing;
 using Dfs.Shared.Messages;
 using Dfs.Shared.Metadata;
+using Dfs.Shared.Security;
 
 namespace Dfs.MetadataServer.Hosting;
 
 /// <summary>
 /// TCP server host for the Metadata Server that listens on LISTEN_PORT,
-/// executes the Hello handshake on incoming connections, and maintains the metadata store.
+/// executes the Hello handshake on incoming connections, and handles control requests against the metadata store.
 /// </summary>
 public sealed class MetadataServerHost : IAsyncDisposable
 {
     private readonly bool _ownsStore;
+    private readonly NamespaceHandler _namespaceHandler;
     private readonly ConcurrentDictionary<Task, bool> _activeConnections = new();
     private TcpListener? _listener;
     private CancellationTokenSource? _cts;
@@ -38,7 +42,8 @@ public sealed class MetadataServerHost : IAsyncDisposable
     /// </summary>
     /// <param name="config">The configuration parameters.</param>
     /// <param name="store">Optional existing store instance; if null, creates a default MetadataStore.</param>
-    public MetadataServerHost(MetadataServerConfig config, IMetadataStore? store = null)
+    /// <param name="authorizer">Optional authorizer used to enforce RBAC permissions on incoming requests.</param>
+    public MetadataServerHost(MetadataServerConfig config, IMetadataStore? store = null, IAuthorizer? authorizer = null)
     {
         Config = config;
         if (store is not null)
@@ -52,6 +57,8 @@ public sealed class MetadataServerHost : IAsyncDisposable
             Store = new MetadataStore(config.OpLogPath, config.DatabasePath);
             _ownsStore = true;
         }
+
+        _namespaceHandler = new NamespaceHandler(Store, authorizer);
     }
 
     /// <summary>
@@ -202,18 +209,26 @@ public sealed class MetadataServerHost : IAsyncDisposable
                     return;
                 }
 
-                // Stage 1 skeleton: connection handshake succeeded.
-                // Keep reading frames until the client closes the connection or cancellation is triggered.
+                // Keep reading and dispatching request frames until the client closes the connection or cancellation is triggered.
                 while (!cancellationToken.IsCancellationRequested)
                 {
-                    var frame = await FrameCodec.ReadRawFrameAsync(stream, cancellationToken).ConfigureAwait(false);
+                    RawFrame? frame;
+                    try
+                    {
+                        frame = await FrameCodec.ReadRawFrameAsync(stream, cancellationToken).ConfigureAwait(false);
+                    }
+                    catch (DfsException ex)
+                    {
+                        await WriteErrorAsync(stream, Guid.NewGuid().ToString("D"), ex.Code, ex.Message, ex.Details, cancellationToken).ConfigureAwait(false);
+                        break;
+                    }
+
                     if (frame is null)
                     {
                         break;
                     }
 
-                    // In milestone M2, operation message handlers (auth, namespace, upload, cluster)
-                    // will dispatch from this frame read loop.
+                    await DispatchFrameAsync(stream, frame, cancellationToken).ConfigureAwait(false);
                 }
             }
             catch (DfsException)
@@ -233,6 +248,65 @@ public sealed class MetadataServerHost : IAsyncDisposable
                 // Client dropped connection
             }
         }
+    }
+
+    private async Task DispatchFrameAsync(Stream stream, RawFrame frame, CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (NamespaceHandler.CanHandle(frame.Type))
+            {
+                var response = await _namespaceHandler.HandleAsync(frame, cancellationToken).ConfigureAwait(false);
+                await FrameCodec.WriteRawFrameAsync(stream, response.Type, response.Payload, cancellationToken).ConfigureAwait(false);
+                return;
+            }
+
+            throw new DfsException(ErrorCode.BadRequest, $"Unsupported message type {frame.Type} (0x{(byte)frame.Type:X2}).");
+        }
+        catch (DfsException ex)
+        {
+            await WriteErrorAsync(stream, ExtractRequestId(frame.Payload), ex.Code, ex.Message, ex.Details, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            await WriteErrorAsync(stream, ExtractRequestId(frame.Payload), ErrorCode.Internal, "Internal server error.", null, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private static Task WriteErrorAsync(
+        Stream stream,
+        string requestId,
+        ErrorCode code,
+        string message,
+        IReadOnlyDictionary<string, JsonElement>? details,
+        CancellationToken cancellationToken)
+    {
+        var copy = details is null
+            ? null
+            : details as Dictionary<string, JsonElement> ?? new Dictionary<string, JsonElement>(details);
+        var error = new ErrorResponse(requestId, code, message, copy);
+        return FrameCodec.WriteMessageAsync(stream, MessageType.Error, error, cancellationToken);
+    }
+
+    private static string ExtractRequestId(ReadOnlySpan<byte> payload)
+    {
+        try
+        {
+            var reader = new Utf8JsonReader(payload);
+            using var doc = JsonDocument.ParseValue(ref reader);
+            if (doc.RootElement.ValueKind == JsonValueKind.Object &&
+                doc.RootElement.TryGetProperty("requestId", out var prop) &&
+                prop.ValueKind == JsonValueKind.String &&
+                prop.GetString() is { } id)
+            {
+                return id;
+            }
+        }
+        catch (JsonException)
+        {
+        }
+
+        return Guid.NewGuid().ToString("D");
     }
 
     /// <inheritdoc />

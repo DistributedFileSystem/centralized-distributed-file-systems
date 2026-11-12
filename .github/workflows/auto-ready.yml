@@ -1,4 +1,4 @@
-name: Promote unblocked M2 tasks to Ready
+name: Promote unblocked active-stage tasks to Ready
 
 on:
   issues:
@@ -22,7 +22,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Test promotion rules
         run: node --test .github/scripts/promote-ready.test.cjs
-      - name: Promote unblocked M2 issues
+      - name: Promote unblocked issues in active stage
         env:
           GH_TOKEN: ${{ secrets.DFS_PROJECTS_TOKEN }}
           GH_REPOSITORY: ${{ github.repository }}

@@ -1,7 +1,7 @@
 'use strict';
 
-// Only promote open M2 issues in Backlog that explicitly list completed blockers.
-// Other statuses, milestones, and issues without a dependency list are untouched.
+// Stage-gated project automation: only the first unfinished milestone can enter Ready.
+// Respect current work; only move open Backlog issues after their blockers are complete.
 const API = 'https://api.github.com';
 
 function blockersFromBody(body) {
@@ -11,20 +11,44 @@ function blockersFromBody(body) {
     .map(match => Number(match[1])))];
 }
 
-function isM2(title) {
-  return /^M2(?:\s|[-–—]|$)/i.test(title || '');
+const STAGE_ORDER = Object.freeze(['M1', 'M2', 'M3', 'S1', 'S2', 'S3']);
+
+function stageCode(title) {
+  const match = /^(M[1-3]|S[1-3])(?:\s|[-–—]|$)/i.exec(title || '');
+  return match ? match[1].toUpperCase() : null;
 }
 
-function candidate(item, repository) {
+// Never unlock a later stage until every issue in the earlier stage is closed.
+// An empty stage without any completed issues is not silently skipped.
+function activeStageFromMilestones(milestones) {
+  const stages = new Map();
+  for (const milestone of milestones) {
+    const stage = stageCode(milestone.title);
+    if (!stage) continue;
+    if (stages.has(stage)) throw new Error('Duplicate milestone for stage ' + stage);
+    stages.set(stage, milestone);
+  }
+  for (const stage of STAGE_ORDER) {
+    const milestone = stages.get(stage);
+    if (!milestone) throw new Error('Missing milestone for stage ' + stage);
+    if (!Number.isInteger(milestone.open_issues) || !Number.isInteger(milestone.closed_issues)) {
+      throw new Error('Missing issue counts for milestone ' + milestone.title);
+    }
+    if (milestone.open_issues > 0 || milestone.closed_issues === 0) return stage;
+  }
+  return null;
+}
+
+function candidate(item, repository, activeStage) {
   const issue = item?.content;
-  if (!issue || issue.repository?.nameWithOwner?.toLowerCase() !== repository.toLowerCase()) return false;
-  if (issue.state !== 'OPEN' || !isM2(issue.milestone?.title)) return false;
+  if (!activeStage || !issue || issue.repository?.nameWithOwner?.toLowerCase() !== repository.toLowerCase()) return false;
+  if (issue.state !== 'OPEN' || stageCode(issue.milestone?.title) !== activeStage) return false;
   if (item.fieldValueByName?.name?.toLowerCase() !== 'backlog') return false;
-  return blockersFromBody(issue.body).length > 0;
+  return true;
 }
 
-async function shouldPromote(item, repository, blockerCompleted) {
-  if (!candidate(item, repository)) return false;
+async function shouldPromote(item, repository, activeStage, blockerCompleted) {
+  if (!candidate(item, repository, activeStage)) return false;
   for (const number of blockersFromBody(item.content.body)) {
     if (!(await blockerCompleted(number))) return false;
   }
@@ -55,6 +79,17 @@ async function graphql(query, variables, token) {
     throw new Error('GitHub GraphQL: ' + result.errors.map(error => error.message).join('; '));
   }
   return result.data;
+}
+
+async function getMilestones(repository, token) {
+  const milestones = [];
+  for (let page = 1; page <= 20; page++) {
+    const batch = await api('/repos/' + repository + '/milestones?state=all&per_page=100&page=' + page, token);
+    if (!Array.isArray(batch)) throw new Error('Could not read repository milestones.');
+    milestones.push(...batch);
+    if (batch.length < 100) return milestones;
+  }
+  throw new Error('Milestone list exceeded pagination limit.');
 }
 
 async function findProject(org, title, token) {
@@ -102,6 +137,13 @@ async function main() {
   if (!token) throw new Error('Missing DFS_PROJECTS_TOKEN secret. See docs/automation.md.');
   if (!repo || !org) throw new Error('Missing GH_REPOSITORY or GH_ORGANIZATION.');
 
+  const activeStage = activeStageFromMilestones(await getMilestones(repo, token));
+  if (!activeStage) {
+    console.log('All planned stages are complete; no issues to move.');
+    return;
+  }
+  console.log('Active stage: ' + activeStage + ' (later stages remain locked).');
+
   const project = await findProject(org, projectTitle, token);
   const {field, items} = await getProjectItems(org, project.number, token);
   const ready = field?.options?.find(option => option.name.toLowerCase() === 'ready');
@@ -121,13 +163,13 @@ async function main() {
 
   let changed = 0;
   for (const item of items) {
-    if (await shouldPromote(item, repo, blockerCompleted)) {
+    if (await shouldPromote(item, repo, activeStage, blockerCompleted)) {
       await promoteItem(project.id, item.id, field.id, ready.id, token);
-      console.log('Moved #' + item.content.number + ' to Ready: ' + item.content.title);
+      console.log('Moved ' + activeStage + ' #' + item.content.number + ' to Ready: ' + item.content.title);
       changed += 1;
     }
   }
-  console.log('Done: inspected ' + items.length + ' project items; moved ' + changed + ' M2 issue(s).');
+  console.log('Done: inspected ' + items.length + ' project items; moved ' + changed + ' ' + activeStage + ' issue(s).');
 }
 
 if (require.main === module) {
@@ -137,4 +179,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = {blockersFromBody, isM2, candidate, shouldPromote};
+module.exports = {blockersFromBody, stageCode, activeStageFromMilestones, candidate, shouldPromote};

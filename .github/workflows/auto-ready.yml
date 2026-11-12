@@ -1,0 +1,31 @@
+name: Promote unblocked M2 tasks to Ready
+
+on:
+  issues:
+    types: [closed, reopened, edited, milestoned]
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: read
+
+concurrency:
+  group: dfs-auto-ready
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test promotion rules
+        run: node --test .github/scripts/promote-ready.test.cjs
+      - name: Promote unblocked M2 issues
+        env:
+          GH_TOKEN: ${{ secrets.DFS_PROJECTS_TOKEN }}
+          GH_REPOSITORY: ${{ github.repository }}
+          GH_ORGANIZATION: ${{ github.repository_owner }}
+          PROJECT_TITLE: 'DFS - Task board'
+        run: node .github/scripts/promote-ready.cjs

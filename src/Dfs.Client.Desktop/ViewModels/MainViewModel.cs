@@ -90,7 +90,7 @@ public sealed class MainViewModel : ViewModelBase
 
         LoginVm = new LoginViewModel(_client, OnLoginSuccess);
         FileBrowserVm = new FileBrowserViewModel(_client);
-        TransferManagerVm = new TransferManagerViewModel();
+        TransferManagerVm = new TransferManagerViewModel(_client);
         AdminPanelVm = new AdminPanelViewModel(_client);
         ClusterStatusVm = new ClusterStatusViewModel(_client);
 

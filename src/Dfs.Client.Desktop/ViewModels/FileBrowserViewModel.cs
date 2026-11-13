@@ -310,6 +310,12 @@ public sealed class FileBrowserViewModel : ViewModelBase
             return;
         }
 
+        if (Items.Any(i => i.Name.Equals(folderName, StringComparison.OrdinalIgnoreCase)))
+        {
+            ShowNotification($"Thư mục '{folderName}' đã tồn tại trong thư mục hiện tại.", isError: true);
+            return;
+        }
+
         IsCreateFolderDialogOpen = false;
         var folderPath = CurrentPath == "/" ? $"/{folderName}" : $"{CurrentPath}/{folderName}";
 
@@ -369,6 +375,12 @@ public sealed class FileBrowserViewModel : ViewModelBase
         if (newName == targetItem.Name)
         {
             IsRenameDialogOpen = false;
+            return;
+        }
+
+        if (Items.Any(i => i != targetItem && i.Name.Equals(newName, StringComparison.OrdinalIgnoreCase)))
+        {
+            ShowNotification($"Mục '{newName}' đã tồn tại trong thư mục hiện tại.", isError: true);
             return;
         }
 

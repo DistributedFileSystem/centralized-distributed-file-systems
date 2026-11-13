@@ -103,6 +103,11 @@ public sealed class LoginViewModel : ViewModelBase
     public ICommand TogglePasswordRevealCommand { get; }
     public ICommand DismissErrorCommand { get; }
 
+    public LoginViewModel(IDfsClient client, Action<LoginResponse> onLoginSuccess)
+        : this(client, (response, _) => onLoginSuccess(response))
+    {
+    }
+
     public LoginViewModel(IDfsClient client, Action<LoginResponse, string> onLoginSuccess)
     {
         _client = client;

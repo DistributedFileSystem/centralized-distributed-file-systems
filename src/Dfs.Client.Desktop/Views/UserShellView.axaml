@@ -1,0 +1,127 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:Dfs.Client.Desktop.ViewModels"
+             xmlns:views="using:Dfs.Client.Desktop.Views"
+             mc:Ignorable="d" d:DesignWidth="1180" d:DesignHeight="740"
+             x:Class="Dfs.Client.Desktop.Views.UserShellView"
+             x:DataType="vm:UserShellViewModel">
+
+    <UserControl.DataTemplates>
+        <DataTemplate DataType="{x:Type vm:FileBrowserViewModel}">
+            <views:FileBrowserView />
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type vm:TransferManagerViewModel}">
+            <views:TransferManagerView />
+        </DataTemplate>
+    </UserControl.DataTemplates>
+
+    <Grid ColumnDefinitions="250,*">
+        <!-- Left Sidebar Navigation for End User -->
+        <Border Grid.Column="0"
+                Background="#0F172A"
+                BorderBrush="#1E293B"
+                BorderThickness="0,0,1,0">
+            <Grid RowDefinitions="Auto,*,Auto">
+                <!-- Brand / App Header -->
+                <Border Grid.Row="0" Padding="20,22" BorderBrush="#1E293B" BorderThickness="0,0,0,1">
+                    <StackPanel Spacing="6">
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <Border Width="38" Height="38" CornerRadius="8" Background="#0284C7" VerticalAlignment="Center">
+                                <TextBlock Text="📁" FontSize="20" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Border>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="DFS User Client"
+                                           FontSize="16"
+                                           FontWeight="Bold"
+                                           Foreground="#F8FAFC" />
+                                <TextBlock Text="Không gian tệp tin cá nhân"
+                                           FontSize="11"
+                                           Foreground="#38BDF8"
+                                           FontWeight="SemiBold" />
+                            </StackPanel>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- User Navigation Buttons List -->
+                <StackPanel Grid.Row="1" Spacing="6" Margin="12,14">
+                    <Button Content="📁  Tệp tin của tôi"
+                            Command="{Binding NavigateFilesCommand}"
+                            HorizontalAlignment="Stretch"
+                            HorizontalContentAlignment="Left"
+                            Padding="16,11"
+                            CornerRadius="6"
+                            Foreground="#F8FAFC"
+                            FontSize="13"
+                            FontWeight="SemiBold" />
+
+                    <Button Content="🚀  Hàng đợi truyền tải"
+                            Command="{Binding NavigateTransfersCommand}"
+                            HorizontalAlignment="Stretch"
+                            HorizontalContentAlignment="Left"
+                            Padding="16,11"
+                            CornerRadius="6"
+                            Foreground="#F8FAFC"
+                            FontSize="13"
+                            FontWeight="SemiBold" />
+                </StackPanel>
+
+                <!-- Bottom User Profile Card -->
+                <Border Grid.Row="2"
+                        Background="#090D16"
+                        BorderBrush="#1E293B"
+                        BorderThickness="0,1,0,0"
+                        Padding="16,14">
+                    <Grid ColumnDefinitions="Auto,*,Auto" VerticalAlignment="Center">
+                        <!-- Circular Avatar -->
+                        <Border Grid.Column="0"
+                                Width="36" Height="36"
+                                CornerRadius="18"
+                                Background="#0284C7"
+                                Margin="0,0,10,0">
+                            <TextBlock Text="👤"
+                                       FontSize="16"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center" />
+                        </Border>
+
+                        <!-- Username & Role -->
+                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                            <TextBlock Text="{Binding CurrentUser.Username}"
+                                       FontWeight="Bold"
+                                       FontSize="13"
+                                       Foreground="#F8FAFC"
+                                       TextTrimming="CharacterEllipsis" />
+                            <Border Background="#1E293B" CornerRadius="4" Padding="6,2" HorizontalAlignment="Left">
+                                <TextBlock Text="USER CLIENT"
+                                           FontSize="10"
+                                           Foreground="#38BDF8"
+                                           FontWeight="SemiBold" />
+                            </Border>
+                        </StackPanel>
+
+                        <!-- Logout Button -->
+                        <Button Grid.Column="2"
+                                Content="🚪 Thoát"
+                                Command="{Binding LogoutCommand}"
+                                Padding="8,5"
+                                FontSize="11"
+                                CornerRadius="4"
+                                Background="#1E293B"
+                                Foreground="#F8FAFC"
+                                BorderThickness="0"
+                                VerticalAlignment="Center" />
+                    </Grid>
+                </Border>
+            </Grid>
+        </Border>
+
+        <!-- Right Main Content Area -->
+        <ContentControl Grid.Column="1"
+                        Content="{Binding CurrentPage}"
+                        Background="#FFFFFF" />
+    </Grid>
+</UserControl>
+

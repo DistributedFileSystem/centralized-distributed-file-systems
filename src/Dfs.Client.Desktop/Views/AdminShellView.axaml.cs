@@ -2,9 +2,9 @@ using Avalonia.Controls;
 
 namespace Dfs.Client.Desktop.Views;
 
-public partial class ClusterStatusView : UserControl
+public partial class AdminShellView : UserControl
 {
-    public ClusterStatusView()
+    public AdminShellView()
     {
         InitializeComponent();
     }

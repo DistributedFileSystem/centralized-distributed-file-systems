@@ -4,107 +4,372 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="using:Dfs.Client.Desktop.ViewModels"
              xmlns:m="using:Dfs.Client.Desktop.Models"
-             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="600"
+             mc:Ignorable="d" d:DesignWidth="1050" d:DesignHeight="700"
              x:Class="Dfs.Client.Desktop.Views.TransferManagerView"
              x:DataType="vm:TransferManagerViewModel">
 
-    <Grid RowDefinitions="Auto,*" Background="#FFFFFF" Margin="24">
-        <!-- Header -->
+    <Grid RowDefinitions="Auto,Auto,Auto,Auto,*" Background="#FFFFFF" Margin="24">
+        <!-- 1. Header & Actions Toolbar -->
         <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,16">
             <StackPanel Grid.Column="0" Spacing="4">
-                <TextBlock Text="Hàng đợi truyền tải (Transfer Manager)"
-                           FontSize="18"
+                <TextBlock Text="🚀 Hàng đợi truyền tải (Transfer Manager)"
+                           FontSize="20"
                            FontWeight="Bold"
-                           Foreground="#212529" />
-                <TextBlock Text="Giám sát tiến độ Upload / Download song song trực tiếp với các Data Server"
+                           Foreground="#1E293B" />
+                <TextBlock Text="Theo dõi tiến độ Upload / Download đa khối song song trực tiếp với các Data Server"
                            FontSize="12"
-                           Foreground="#6C757D" />
+                           Foreground="#64748B" />
             </StackPanel>
 
-            <Button Grid.Column="1"
-                    Content="🧹 Xóa hoàn tất"
-                    Command="{Binding ClearCompletedCommand}"
-                    Padding="12,6"
-                    CornerRadius="4"
-                    Background="#FFFFFF"
-                    BorderBrush="#DEE2E6"
-                    BorderThickness="1" />
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                <Button Content="⬆ Tải lên tệp mới..."
+                        Command="{Binding OpenUploadDialogCommand}"
+                        Padding="14,7"
+                        CornerRadius="6"
+                        Background="#0284C7"
+                        Foreground="#FFFFFF"
+                        FontWeight="SemiBold"
+                        FontSize="12" />
+
+                <Button Content="🧹 Xóa hoàn tất"
+                        Command="{Binding ClearCompletedCommand}"
+                        Padding="12,7"
+                        CornerRadius="6"
+                        Background="#F8FAFC"
+                        BorderBrush="#E2E8F0"
+                        BorderThickness="1"
+                        FontSize="12" />
+            </StackPanel>
         </Grid>
 
-        <!-- Transfer Items List -->
-        <ListBox Grid.Row="1"
-                 ItemsSource="{Binding Transfers}"
-                 Background="Transparent">
-            <ListBox.ItemTemplate>
-                <DataTemplate x:DataType="m:UiTransferItem">
-                    <Border Background="#F8F9FA"
-                            BorderBrush="#DEE2E6"
-                            BorderThickness="1"
-                            CornerRadius="6"
-                            Padding="16"
-                            Margin="0,4,0,8">
-                        <StackPanel Spacing="8">
-                            <!-- Row 1: File name & Badges -->
-                            <Grid ColumnDefinitions="*,Auto">
-                                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8">
-                                    <TextBlock Text="📦" FontSize="16" VerticalAlignment="Center" />
-                                    <TextBlock Text="{Binding FileName}"
-                                               FontWeight="SemiBold"
-                                               FontSize="14"
-                                               Foreground="#212529"
-                                               VerticalAlignment="Center" />
-                                    <Border Background="#E7F5FF"
-                                            CornerRadius="4"
-                                            Padding="6,2"
+        <!-- 2. Top Metrics Summary Bar (theo wireframe 03-transfers.md) -->
+        <Border Grid.Row="1"
+                Background="#F8FAFC"
+                BorderBrush="#E2E8F0"
+                BorderThickness="1"
+                CornerRadius="8"
+                Padding="16,12"
+                Margin="0,0,0,14">
+            <Grid ColumnDefinitions="*,*,*,*">
+                <StackPanel Grid.Column="0" Spacing="2">
+                    <TextBlock Text="TỐC ĐỘ TỔNG" FontSize="11" FontWeight="SemiBold" Foreground="#64748B" />
+                    <TextBlock Text="{Binding TotalSpeedText}" FontSize="18" FontWeight="Bold" Foreground="#0284C7" />
+                </StackPanel>
+
+                <StackPanel Grid.Column="1" Spacing="2">
+                    <TextBlock Text="ĐANG HOẠT ĐỘNG" FontSize="11" FontWeight="SemiBold" Foreground="#64748B" />
+                    <TextBlock Text="{Binding ActiveCountText}" FontSize="18" FontWeight="Bold" Foreground="#0284C7" />
+                </StackPanel>
+
+                <StackPanel Grid.Column="2" Spacing="2">
+                    <TextBlock Text="GIAO THỨC" FontSize="11" FontWeight="SemiBold" Foreground="#64748B" />
+                    <TextBlock Text="Raw TCP (Chunks 4MB)" FontSize="15" FontWeight="SemiBold" Foreground="#334155" />
+                </StackPanel>
+
+                <StackPanel Grid.Column="3" Spacing="2">
+                    <TextBlock Text="TÍNH TOÀN VẸN" FontSize="11" FontWeight="SemiBold" Foreground="#64748B" />
+                    <TextBlock Text="SHA-256 Verified" FontSize="15" FontWeight="SemiBold" Foreground="#059669" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- 3. Unavailable Alert Banner -->
+        <Border Grid.Row="2"
+                Background="#FEF2F2"
+                BorderBrush="#FCA5A5"
+                BorderThickness="1"
+                CornerRadius="6"
+                Padding="14,10"
+                Margin="0,0,0,14"
+                IsVisible="{Binding HasUnavailableAlert}">
+            <Grid ColumnDefinitions="*,Auto">
+                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <TextBlock Text="🚨" FontSize="16" />
+                    <TextBlock Text="{Binding UnavailableAlert}"
+                               Foreground="#991B1B"
+                               FontWeight="SemiBold"
+                               FontSize="13"
+                               TextWrapping="Wrap" />
+                </StackPanel>
+                <Button Grid.Column="1"
+                        Content="✕"
+                        Command="{Binding DismissAlertCommand}"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        Foreground="#991B1B"
+                        Padding="6,2" />
+            </Grid>
+        </Border>
+
+        <!-- 4. Filter Tabs -->
+        <Border Grid.Row="3"
+                Background="#F1F5F9"
+                BorderBrush="#E2E8F0"
+                BorderThickness="1"
+                CornerRadius="6"
+                Padding="4"
+                Margin="0,0,0,14">
+            <StackPanel Orientation="Horizontal" Spacing="4">
+                <Button Content="{Binding AllFilterHeader}"
+                        Command="{Binding SetFilterCommand}"
+                        CommandParameter="all"
+                        Padding="14,6"
+                        CornerRadius="4"
+                        Background="{Binding IsAllFilter, Converter={x:Null}}"
+                        FontWeight="SemiBold"
+                        FontSize="12" />
+
+                <Button Content="{Binding ActiveFilterHeader}"
+                        Command="{Binding SetFilterCommand}"
+                        CommandParameter="active"
+                        Padding="14,6"
+                        CornerRadius="4"
+                        Background="{Binding IsActiveFilter, Converter={x:Null}}"
+                        FontWeight="SemiBold"
+                        FontSize="12" />
+
+                <Button Content="{Binding CompletedFilterHeader}"
+                        Command="{Binding SetFilterCommand}"
+                        CommandParameter="completed"
+                        Padding="14,6"
+                        CornerRadius="4"
+                        Background="{Binding IsCompletedFilter, Converter={x:Null}}"
+                        FontWeight="SemiBold"
+                        FontSize="12" />
+            </StackPanel>
+        </Border>
+
+        <!-- 5. Transfer Cards List -->
+        <Grid Grid.Row="4">
+            <Border Padding="40"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    IsVisible="{Binding !Transfers.Count}">
+                <StackPanel HorizontalAlignment="Center" Spacing="8">
+                    <TextBlock Text="Chưa có tác vụ truyền tải nào"
+                               FontWeight="Bold"
+                               FontSize="14"
+                               Foreground="#64748B"
+                               HorizontalAlignment="Center" />
+                    <TextBlock Text="Các tác vụ Tải lên (Upload) hoặc Tải xuống (Download) từ Trình duyệt tệp sẽ xuất hiện tại đây."
+                               FontSize="12"
+                               Foreground="#94A3B8"
+                               HorizontalAlignment="Center" />
+                </StackPanel>
+            </Border>
+
+            <ScrollViewer IsVisible="{Binding Transfers.Count}">
+                <ItemsControl ItemsSource="{Binding FilteredTransfers}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="m:UiTransferItem">
+                        <Border Background="#FFFFFF"
+                                BorderBrush="#E2E8F0"
+                                BorderThickness="1"
+                                CornerRadius="8"
+                                Padding="16"
+                                Margin="0,0,0,12"
+                                BoxShadow="0 2 8 0 #0A000000">
+                            <StackPanel Spacing="10">
+                                <!-- Line 1: Direction Badge, File Name, Speed, Cancel/Retry Button -->
+                                <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+                                    <!-- Direction Badge -->
+                                    <Border Grid.Column="0"
+                                            Background="#EFF6FF"
+                                            CornerRadius="6"
+                                            Padding="10,4"
+                                            Margin="0,0,12,0"
                                             VerticalAlignment="Center">
                                         <TextBlock Text="{Binding Direction}"
-                                                   Foreground="#0066CC"
+                                                   Foreground="#0284C7"
                                                    FontWeight="Bold"
-                                                   FontSize="11" />
+                                                   FontSize="12" />
                                     </Border>
-                                </StackPanel>
 
-                                <TextBlock Grid.Column="1"
-                                           Text="{Binding Speed}"
-                                           FontSize="12"
-                                           Foreground="#6C757D"
-                                           VerticalAlignment="Center" />
-                            </Grid>
+                                    <!-- File Name & Destination -->
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding FileName}"
+                                                   FontWeight="Bold"
+                                                   FontSize="14"
+                                                   Foreground="#1E293B"
+                                                   TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Text="{Binding DestinationPath, StringFormat='Đường dẫn: {0}'}"
+                                                   FontSize="11"
+                                                   Foreground="#64748B" />
+                                    </StackPanel>
 
-                            <!-- Row 2: Progress Bar -->
-                            <Grid ColumnDefinitions="*,Auto" VerticalAlignment="Center">
-                                <ProgressBar Grid.Column="0"
-                                             Value="{Binding Progress}"
-                                             Minimum="0"
-                                             Maximum="100"
-                                             Height="8"
-                                             CornerRadius="4"
-                                             Margin="0,0,12,0" />
-                                <TextBlock Grid.Column="1"
-                                           Text="{Binding FormattedProgress}"
-                                           FontWeight="Bold"
-                                           FontSize="12"
-                                           Foreground="#0066CC"
-                                           Width="40"
-                                           TextAlignment="Right" />
-                            </Grid>
+                                    <!-- Speed text -->
+                                    <TextBlock Grid.Column="2"
+                                               Text="{Binding Speed}"
+                                               FontWeight="Bold"
+                                               FontSize="13"
+                                               Foreground="#0284C7"
+                                               VerticalAlignment="Center"
+                                               Margin="0,0,16,0" />
 
-                            <!-- Row 3: Details -->
-                            <Grid ColumnDefinitions="*,*">
-                                <TextBlock Grid.Column="0"
-                                           Text="{Binding Status}"
-                                           FontSize="12"
-                                           Foreground="#495057" />
-                                <TextBlock Grid.Column="1"
-                                           Text="{Binding TargetServers, StringFormat='Data Servers: {0}'}"
-                                           FontSize="11"
-                                           Foreground="#6C757D"
-                                           HorizontalAlignment="Right" />
-                            </Grid>
-                        </StackPanel>
-                    </Border>
-                </DataTemplate>
-            </ListBox.ItemTemplate>
-        </ListBox>
+                                    <!-- Action Buttons -->
+                                    <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                        <Button Content="✕ Hủy tác vụ"
+                                                Command="{Binding $parent[UserControl].((vm:TransferManagerViewModel)DataContext).CancelTransferCommand}"
+                                                CommandParameter="{Binding}"
+                                                IsVisible="{Binding CanCancel}"
+                                                Padding="10,5"
+                                                CornerRadius="4"
+                                                Background="#FEF2F2"
+                                                BorderBrush="#FECDD3"
+                                                BorderThickness="1"
+                                                Foreground="#E11D48"
+                                                FontWeight="SemiBold"
+                                                FontSize="11" />
+
+                                        <Button Content="↻ Thử lại"
+                                                Command="{Binding $parent[UserControl].((vm:TransferManagerViewModel)DataContext).RetryTransferCommand}"
+                                                CommandParameter="{Binding}"
+                                                IsVisible="{Binding CanRetry}"
+                                                Padding="10,5"
+                                                CornerRadius="4"
+                                                Background="#ECFDF5"
+                                                BorderBrush="#A7F3D0"
+                                                BorderThickness="1"
+                                                Foreground="#059669"
+                                                FontWeight="SemiBold"
+                                                FontSize="11" />
+                                    </StackPanel>
+                                </Grid>
+
+                                <!-- Line 2: Progress Bar -->
+                                <Grid ColumnDefinitions="*,Auto" VerticalAlignment="Center">
+                                    <ProgressBar Grid.Column="0"
+                                                 Value="{Binding Progress}"
+                                                 Minimum="0"
+                                                 Maximum="100"
+                                                 Height="10"
+                                                 CornerRadius="5"
+                                                 Margin="0,0,14,0" />
+                                    <TextBlock Grid.Column="1"
+                                               Text="{Binding FormattedProgress}"
+                                               FontWeight="Bold"
+                                               FontSize="13"
+                                               Foreground="#1E293B"
+                                               Width="45"
+                                               TextAlignment="Right" />
+                                </Grid>
+
+                                <!-- Line 3: Status Details & Size -->
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8">
+                                        <TextBlock Text="{Binding Status}"
+                                                   FontSize="12"
+                                                   FontWeight="Medium"
+                                                   Foreground="#334155" />
+                                        <TextBlock Text="•" Foreground="#CBD5E1" />
+                                        <TextBlock Text="{Binding TargetServers}"
+                                                   FontSize="11"
+                                                   Foreground="#64748B" />
+                                    </StackPanel>
+
+                                    <TextBlock Grid.Column="1"
+                                               Text="{Binding SizeText}"
+                                               FontSize="12"
+                                               FontWeight="SemiBold"
+                                               Foreground="#64748B" />
+                                </Grid>
+
+                                <!-- Line 4: Chunk breakdown expander (wireframe 03-transfers.md) -->
+                                <Expander Header="Chi tiết phân tán các Chunk 4 MB tới 5 Data Server..."
+                                          FontSize="12"
+                                          Foreground="#0284C7"
+                                          Margin="0,4,0,0">
+                                    <ItemsControl ItemsSource="{Binding Chunks}" Margin="8,6">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate x:DataType="m:UiChunkItem">
+                                                <Grid ColumnDefinitions="Auto,Auto,*,Auto" Margin="0,4">
+                                                    <TextBlock Grid.Column="0"
+                                                               Text="{Binding ChunkIndex, StringFormat='Chunk {0}:'}"
+                                                               FontWeight="Bold"
+                                                               FontSize="12"
+                                                               Margin="0,0,8,0" />
+                                                    <TextBlock Grid.Column="1"
+                                                               Text="{Binding ChunkSize}"
+                                                               FontSize="12"
+                                                               Foreground="#64748B"
+                                                               Margin="0,0,12,0" />
+                                                    <TextBlock Grid.Column="2"
+                                                               Text="{Binding DataServer, StringFormat='→ {0}'}"
+                                                               FontSize="12"
+                                                               Foreground="#1E293B" />
+                                                    <TextBlock Grid.Column="3"
+                                                               Text="{Binding Status}"
+                                                               FontWeight="SemiBold"
+                                                               FontSize="12"
+                                                               Foreground="#059669" />
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </Expander>
+                            </StackPanel>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+        </Grid>
+
+        <!-- MODAL OVERLAY: New Upload Dialog -->
+        <Border Grid.RowSpan="5"
+                Background="#80000000"
+                IsVisible="{Binding IsUploadDialogOpen}"
+                HorizontalAlignment="Stretch"
+                VerticalAlignment="Stretch">
+            <Border Background="#FFFFFF"
+                    CornerRadius="8"
+                    Width="440"
+                    Padding="24"
+                    BoxShadow="0 8 24 0 #40000000"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center">
+                <StackPanel Spacing="14">
+                    <TextBlock Text="⬆ Tải tệp tin mới lên hệ thống DFS"
+                               FontSize="16"
+                               FontWeight="Bold"
+                               Foreground="#1E293B" />
+                    <TextBlock Text="Hệ thống sẽ tự động băm SHA-256 và phân mảnh 4 MB tới 5 Data Server trong mạng LAN."
+                               FontSize="12"
+                               Foreground="#64748B" />
+
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="Tên tệp tin tải lên:" FontSize="12" FontWeight="SemiBold" />
+                        <TextBox Text="{Binding NewUploadFileName, Mode=TwoWay}"
+                                 PlaceholderText="Ví dụ: research_paper.pdf"
+                                 Height="36"
+                                 CornerRadius="6" />
+                    </StackPanel>
+
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="Đường dẫn thư mục đích trên DFS:" FontSize="12" FontWeight="SemiBold" />
+                        <TextBox Text="{Binding NewUploadPath, Mode=TwoWay}"
+                                 PlaceholderText="/projects/dfs"
+                                 Height="36"
+                                 CornerRadius="6"
+                                 FontFamily="Consolas, monospace" />
+                    </StackPanel>
+
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,8,0,0">
+                        <Button Content="Hủy"
+                                Command="{Binding CancelUploadDialogCommand}"
+                                Padding="14,6"
+                                Background="#F1F5F9"
+                                CornerRadius="4" />
+                        <Button Content="Bắt đầu tải lên"
+                                Command="{Binding ConfirmUploadCommand}"
+                                Padding="14,6"
+                                Background="#0284C7"
+                                Foreground="#FFFFFF"
+                                FontWeight="SemiBold"
+                                CornerRadius="4" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Border>
     </Grid>
 </UserControl>

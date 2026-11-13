@@ -87,8 +87,20 @@ public sealed class AdminPanelViewModel : ViewModelBase
     public int SelectedTabIndex
     {
         get => _selectedTabIndex;
-        set => SetProperty(ref _selectedTabIndex, value);
+        set
+        {
+            if (SetProperty(ref _selectedTabIndex, value))
+            {
+                OnPropertyChanged(nameof(IsUsersTabSelected));
+                OnPropertyChanged(nameof(IsGroupsTabSelected));
+                OnPropertyChanged(nameof(IsGrantsTabSelected));
+            }
+        }
     }
+
+    public bool IsUsersTabSelected => _selectedTabIndex == 0;
+    public bool IsGroupsTabSelected => _selectedTabIndex == 1;
+    public bool IsGrantsTabSelected => _selectedTabIndex == 2;
 
     public string StatusMessage
     {

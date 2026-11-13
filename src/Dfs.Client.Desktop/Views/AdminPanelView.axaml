@@ -60,14 +60,11 @@
             </Grid>
         </Border>
 
-        <!-- 3. Main Admin Subsystem Tabs -->
-        <TabControl Grid.Row="2" SelectedIndex="{Binding SelectedTabIndex}">
+        <!-- 3. Main Admin Subsystem Content (Controlled by Sidebar) -->
+        <Panel Grid.Row="2">
             
-            <!-- ============================================================ -->
-            <!-- TAB 1: USERS MANAGEMENT (BẢNG DANH SÁCH TÀI KHOẢN TOÀN DIỆN)  -->
-            <!-- ============================================================ -->
-            <TabItem Header="Quản lý Người dùng (Users)">
-                <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="0,14,0,0">
+            <!-- SECTION 1: USERS MANAGEMENT (BẢNG DANH SÁCH TÀI KHOẢN TOÀN DIỆN)  -->
+            <Grid IsVisible="{Binding IsUsersTabSelected}" RowDefinitions="Auto,Auto,*,Auto">
                     <!-- Actions Toolbar & Search -->
                     <Border Grid.Row="0"
                             Background="#F8FAFC"
@@ -198,13 +195,11 @@
                                    FontWeight="SemiBold" />
                     </Border>
                 </Grid>
-            </TabItem>
 
             <!-- ============================================================ -->
-            <!-- TAB 2: GROUPS & MEMBERSHIP (MÔ HÌNH MASTER-DETAIL 2 CỘT RÕ RỆT)-->
+            <!-- SECTION 2: GROUPS & MEMBERSHIP (MÔ HÌNH MASTER-DETAIL 2 CỘT) -->
             <!-- ============================================================ -->
-            <TabItem Header="Quản lý Nhóm (Groups &amp; Members)">
-                <Grid RowDefinitions="Auto,*" Margin="0,14,0,0">
+            <Grid IsVisible="{Binding IsGroupsTabSelected}" RowDefinitions="Auto,*">
                     <!-- Actions Toolbar & Search -->
                     <Border Grid.Row="0"
                             Background="#F8FAFC"
@@ -366,13 +361,11 @@
                         </Border>
                     </Grid>
                 </Grid>
-            </TabItem>
 
             <!-- ============================================================ -->
-            <!-- TAB 3: GRANTS RBAC (PHÂN QUYỀN THƯ MỤC VÀ KẾ THỪA PHÂN CẤP)   -->
+            <!-- SECTION 3: GRANTS RBAC (PHÂN QUYỀN THƯ MỤC VÀ KẾ THỪA PHÂN CẤP)-->
             <!-- ============================================================ -->
-            <TabItem Header="Cấp quyền (Grants RBAC)">
-                <Grid RowDefinitions="Auto,Auto,*" Margin="0,14,0,0">
+            <Grid IsVisible="{Binding IsGrantsTabSelected}" RowDefinitions="Auto,Auto,*">
                     <!-- Actions Toolbar -->
                     <Border Grid.Row="0"
                             Background="#F8FAFC"
@@ -451,8 +444,7 @@
                         </ListBox.ItemTemplate>
                     </ListBox>
                 </Grid>
-            </TabItem>
-        </TabControl>
+        </Panel>
 
         <!-- ============================================================ -->
         <!-- MODAL OVERLAYS: Dialogs                                      -->

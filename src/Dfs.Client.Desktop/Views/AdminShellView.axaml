@@ -20,7 +20,7 @@
                     <StackPanel Spacing="6">
                         <StackPanel Orientation="Horizontal" Spacing="10">
                             <Border Width="38" Height="38" CornerRadius="8" Background="#7C3AED" VerticalAlignment="Center">
-                                <TextBlock Text="🛡️" FontSize="20" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                <TextBlock Text="DFS" FontSize="14" FontWeight="Bold" Foreground="#FFFFFF" HorizontalAlignment="Center" VerticalAlignment="Center" />
                             </Border>
                             <StackPanel VerticalAlignment="Center">
                                 <TextBlock Text="DFS Admin Panel"
@@ -38,7 +38,7 @@
 
                 <!-- Admin Navigation Buttons List (Strictly M2-13: user, group, grant) -->
                 <StackPanel Grid.Row="1" Spacing="6" Margin="12,14">
-                    <Button Content="👤  Quản lý Người dùng"
+                    <Button Content="Quản lý Người dùng"
                             Command="{Binding NavigateUsersCommand}"
                             HorizontalAlignment="Stretch"
                             HorizontalContentAlignment="Left"
@@ -48,7 +48,7 @@
                             FontSize="13"
                             FontWeight="SemiBold" />
 
-                    <Button Content="👥  Quản lý Nhóm"
+                    <Button Content="Quản lý Nhóm"
                             Command="{Binding NavigateGroupsCommand}"
                             HorizontalAlignment="Stretch"
                             HorizontalContentAlignment="Left"
@@ -58,7 +58,7 @@
                             FontSize="13"
                             FontWeight="SemiBold" />
 
-                    <Button Content="🛡️  Phân quyền thư mục (RBAC)"
+                    <Button Content="Phân quyền thư mục (RBAC)"
                             Command="{Binding NavigateGrantsCommand}"
                             HorizontalAlignment="Stretch"
                             HorizontalContentAlignment="Left"

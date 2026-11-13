@@ -12,7 +12,7 @@
         <!-- 1. Header & Global Sync Action -->
         <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,16">
             <StackPanel Grid.Column="0" Spacing="4">
-                <TextBlock Text="🛡️ Bảng điều khiển Quản trị hệ thống (Admin Control Panel)"
+                <TextBlock Text="Bảng điều khiển Quản trị hệ thống (Admin Control Panel)"
                            FontSize="20"
                            FontWeight="Bold"
                            Foreground="#0F172A" />
@@ -66,7 +66,7 @@
             <!-- ============================================================ -->
             <!-- TAB 1: USERS MANAGEMENT (BẢNG DANH SÁCH TÀI KHOẢN TOÀN DIỆN)  -->
             <!-- ============================================================ -->
-            <TabItem Header="👤 Quản lý Người dùng (Users)">
+            <TabItem Header="Quản lý Người dùng (Users)">
                 <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="0,14,0,0">
                     <!-- Actions Toolbar & Search -->
                     <Border Grid.Row="0"
@@ -131,13 +131,8 @@
                         <ListBox.ItemTemplate>
                             <DataTemplate x:DataType="m:UiUserItem">
                                 <Grid ColumnDefinitions="2.5*,2*,2*,3*,2.5*" VerticalAlignment="Center" Margin="0,6">
-                                    <!-- Col 0: Username with avatar -->
-                                    <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                                        <Border Width="28" Height="28" CornerRadius="14" Background="#E0F2FE" VerticalAlignment="Center">
-                                            <TextBlock Text="👤" FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center" />
-                                        </Border>
-                                        <TextBlock Text="{Binding Username}" FontWeight="Bold" FontSize="13" Foreground="#0F172A" VerticalAlignment="Center" />
-                                    </StackPanel>
+                                    <!-- Col 0: Username -->
+                                    <TextBlock Grid.Column="0" Text="{Binding Username}" FontWeight="Bold" FontSize="13" Foreground="#0F172A" VerticalAlignment="Center" />
 
                                     <!-- Col 1: ID -->
                                     <TextBlock Grid.Column="1" Text="{Binding Id}" FontFamily="Consolas, monospace" FontSize="12" Foreground="#64748B" VerticalAlignment="Center" />
@@ -208,7 +203,7 @@
             <!-- ============================================================ -->
             <!-- TAB 2: GROUPS & MEMBERSHIP (MÔ HÌNH MASTER-DETAIL 2 CỘT RÕ RỆT)-->
             <!-- ============================================================ -->
-            <TabItem Header="👥 Quản lý Nhóm (Groups &amp; Members)">
+            <TabItem Header="Quản lý Nhóm (Groups &amp; Members)">
                 <Grid RowDefinitions="Auto,*" Margin="0,14,0,0">
                     <!-- Actions Toolbar & Search -->
                     <Border Grid.Row="0"
@@ -266,17 +261,13 @@
                                 <ListBox.ItemTemplate>
                                     <DataTemplate x:DataType="m:UiGroupItem">
                                         <Border Padding="10,8" Margin="0,2" CornerRadius="6">
-                                            <Grid ColumnDefinitions="Auto,*,Auto" VerticalAlignment="Center">
-                                                <Border Grid.Column="0" Width="36" Height="36" CornerRadius="18" Background="#F3E8FF" VerticalAlignment="Center" Margin="0,0,10,0">
-                                                    <TextBlock Text="👥" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center" />
-                                                </Border>
-
-                                                <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                                            <Grid ColumnDefinitions="*,Auto" VerticalAlignment="Center">
+                                                <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2">
                                                     <TextBlock Text="{Binding Name}" FontWeight="Bold" FontSize="13" Foreground="#0F172A" />
                                                     <TextBlock Text="{Binding Id}" FontFamily="Consolas, monospace" FontSize="11" Foreground="#94A3B8" />
                                                 </StackPanel>
 
-                                                <Border Grid.Column="2" Background="#EDE9FE" CornerRadius="10" Padding="8,3" VerticalAlignment="Center">
+                                                <Border Grid.Column="1" Background="#EDE9FE" CornerRadius="10" Padding="8,3" VerticalAlignment="Center">
                                                     <TextBlock Text="{Binding MemberCountText}" Foreground="#6D28D9" FontWeight="Bold" FontSize="11" />
                                                 </Border>
                                             </Grid>
@@ -305,7 +296,7 @@
                                     <Grid ColumnDefinitions="*,Auto" VerticalAlignment="Center">
                                         <StackPanel Grid.Column="0" Spacing="4">
                                             <StackPanel Orientation="Horizontal" Spacing="8">
-                                                <TextBlock Text="👥 Thành viên của nhóm:" FontWeight="Bold" FontSize="14" Foreground="#581C87" />
+                                                <TextBlock Text="Thành viên của nhóm:" FontWeight="Bold" FontSize="14" Foreground="#581C87" />
                                                 <TextBlock Text="{Binding SelectedGroup.Name}" FontWeight="Bold" FontSize="14" Foreground="#7C3AED" />
                                             </StackPanel>
                                             <TextBlock Text="Các thành viên này sẽ tự động thừa hưởng toàn bộ quyền hạn (Grants) được cấp cho nhóm."
@@ -342,14 +333,10 @@
                                                             CornerRadius="6"
                                                             Padding="12,8"
                                                             Margin="0,2">
-                                                        <Grid ColumnDefinitions="Auto,*,Auto" VerticalAlignment="Center">
-                                                            <Border Grid.Column="0" Width="26" Height="26" CornerRadius="13" Background="#E0E7FF" Margin="0,0,10,0" VerticalAlignment="Center">
-                                                                <TextBlock Text="👤" FontSize="13" HorizontalAlignment="Center" VerticalAlignment="Center" />
-                                                            </Border>
+                                                        <Grid ColumnDefinitions="*,Auto" VerticalAlignment="Center">
+                                                            <TextBlock Grid.Column="0" Text="{Binding}" FontWeight="SemiBold" FontSize="13" Foreground="#1E293B" VerticalAlignment="Center" />
 
-                                                            <TextBlock Grid.Column="1" Text="{Binding}" FontWeight="SemiBold" FontSize="13" Foreground="#1E293B" VerticalAlignment="Center" />
-
-                                                            <Button Grid.Column="2"
+                                                            <Button Grid.Column="1"
                                                                     Content="🗑️ Xóa khỏi nhóm"
                                                                     Command="{Binding $parent[UserControl].((vm:AdminPanelViewModel)DataContext).RemoveMemberCommand}"
                                                                     CommandParameter="{Binding}"
@@ -384,7 +371,7 @@
             <!-- ============================================================ -->
             <!-- TAB 3: GRANTS RBAC (PHÂN QUYỀN THƯ MỤC VÀ KẾ THỪA PHÂN CẤP)   -->
             <!-- ============================================================ -->
-            <TabItem Header="🛡️ Cấp quyền (Grants RBAC)">
+            <TabItem Header="Cấp quyền (Grants RBAC)">
                 <Grid RowDefinitions="Auto,Auto,*" Margin="0,14,0,0">
                     <!-- Actions Toolbar -->
                     <Border Grid.Row="0"
@@ -613,7 +600,7 @@
                     HorizontalAlignment="Center"
                     VerticalAlignment="Center">
                 <StackPanel Spacing="14">
-                    <TextBlock Text="🛡️ Cấp quyền truy cập mới (RBAC)" FontSize="16" FontWeight="Bold" Foreground="#1E293B" />
+                    <TextBlock Text="Cấp quyền truy cập mới (RBAC)" FontSize="16" FontWeight="Bold" Foreground="#1E293B" />
 
                     <StackPanel Spacing="4">
                         <TextBlock Text="Loại đối tượng nhận quyền (User hoặc Group):" FontSize="12" FontWeight="SemiBold" />

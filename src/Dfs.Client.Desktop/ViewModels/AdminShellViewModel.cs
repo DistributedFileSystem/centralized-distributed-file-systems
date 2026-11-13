@@ -1,5 +1,4 @@
 using System;
-using System.Threading.Tasks;
 using System.Windows.Input;
 using Dfs.Shared.Client;
 using Dfs.Shared.Messages;
@@ -10,38 +9,14 @@ public sealed class AdminShellViewModel : ViewModelBase
 {
     private readonly IDfsClient _client;
     private readonly Action _onLogout;
-    private string _activeTab = "admin";
-    private object _currentPage;
 
     public UserRef CurrentUser { get; }
 
-    public string ActiveTab
-    {
-        get => _activeTab;
-        set
-        {
-            if (SetProperty(ref _activeTab, value))
-            {
-                OnPropertyChanged(nameof(IsAdminTab));
-                OnPropertyChanged(nameof(IsClusterTab));
-            }
-        }
-    }
-
-    public bool IsAdminTab => _activeTab == "admin";
-    public bool IsClusterTab => _activeTab == "cluster";
-
-    public object CurrentPage
-    {
-        get => _currentPage;
-        set => SetProperty(ref _currentPage, value);
-    }
-
     public AdminPanelViewModel AdminPanelVm { get; }
-    public ClusterStatusViewModel ClusterStatusVm { get; }
 
-    public ICommand NavigateAdminCommand { get; }
-    public ICommand NavigateClusterCommand { get; }
+    public ICommand NavigateUsersCommand { get; }
+    public ICommand NavigateGroupsCommand { get; }
+    public ICommand NavigateGrantsCommand { get; }
     public ICommand LogoutCommand { get; }
 
     public AdminShellViewModel(IDfsClient client, UserRef user, Action onLogout)
@@ -51,22 +26,23 @@ public sealed class AdminShellViewModel : ViewModelBase
         _onLogout = onLogout;
 
         AdminPanelVm = new AdminPanelViewModel(_client);
-        ClusterStatusVm = new ClusterStatusViewModel(_client);
 
-        _currentPage = AdminPanelVm;
-
-        NavigateAdminCommand = new RelayCommand(async () =>
+        NavigateUsersCommand = new RelayCommand(async () =>
         {
-            ActiveTab = "admin";
-            CurrentPage = AdminPanelVm;
+            AdminPanelVm.SelectedTabIndex = 0;
             await AdminPanelVm.LoadDataAsync();
         });
 
-        NavigateClusterCommand = new RelayCommand(async () =>
+        NavigateGroupsCommand = new RelayCommand(async () =>
         {
-            ActiveTab = "cluster";
-            CurrentPage = ClusterStatusVm;
-            await ClusterStatusVm.LoadClusterStatusAsync();
+            AdminPanelVm.SelectedTabIndex = 1;
+            await AdminPanelVm.LoadDataAsync();
+        });
+
+        NavigateGrantsCommand = new RelayCommand(async () =>
+        {
+            AdminPanelVm.SelectedTabIndex = 2;
+            await AdminPanelVm.LoadDataAsync();
         });
 
         LogoutCommand = new RelayCommand(() => _onLogout());

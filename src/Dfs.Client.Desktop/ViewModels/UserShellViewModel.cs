@@ -78,3 +78,4 @@ public sealed class UserShellViewModel : ViewModelBase
         _ = FileBrowserVm.LoadDirectoryAsync("/projects");
     }
 }
+

@@ -8,15 +8,6 @@
              x:Class="Dfs.Client.Desktop.Views.AdminShellView"
              x:DataType="vm:AdminShellViewModel">
 
-    <UserControl.DataTemplates>
-        <DataTemplate DataType="{x:Type vm:AdminPanelViewModel}">
-            <views:AdminPanelView />
-        </DataTemplate>
-        <DataTemplate DataType="{x:Type vm:ClusterStatusViewModel}">
-            <views:ClusterStatusView />
-        </DataTemplate>
-    </UserControl.DataTemplates>
-
     <Grid ColumnDefinitions="260,*">
         <!-- Left Sidebar Navigation for System Administrator -->
         <Border Grid.Column="0"
@@ -36,7 +27,7 @@
                                            FontSize="16"
                                            FontWeight="Bold"
                                            Foreground="#F8FAFC" />
-                                <TextBlock Text="Quản trị hệ thống và Cụm"
+                                <TextBlock Text="Quản trị người dùng &amp; quyền"
                                            FontSize="11"
                                            Foreground="#A78BFA"
                                            FontWeight="SemiBold" />
@@ -45,10 +36,10 @@
                     </StackPanel>
                 </Border>
 
-                <!-- Admin Navigation Buttons List -->
+                <!-- Admin Navigation Buttons List (Strictly M2-13: user, group, grant) -->
                 <StackPanel Grid.Row="1" Spacing="6" Margin="12,14">
-                    <Button Content="🛡️  Quản trị hệ thống (RBAC)"
-                            Command="{Binding NavigateAdminCommand}"
+                    <Button Content="👤  Quản lý Người dùng"
+                            Command="{Binding NavigateUsersCommand}"
                             HorizontalAlignment="Stretch"
                             HorizontalContentAlignment="Left"
                             Padding="16,11"
@@ -57,8 +48,18 @@
                             FontSize="13"
                             FontWeight="SemiBold" />
 
-                    <Button Content="📊  Giám sát Cụm Data Servers"
-                            Command="{Binding NavigateClusterCommand}"
+                    <Button Content="👥  Quản lý Nhóm"
+                            Command="{Binding NavigateGroupsCommand}"
+                            HorizontalAlignment="Stretch"
+                            HorizontalContentAlignment="Left"
+                            Padding="16,11"
+                            CornerRadius="6"
+                            Foreground="#F8FAFC"
+                            FontSize="13"
+                            FontWeight="SemiBold" />
+
+                    <Button Content="🛡️  Phân quyền thư mục (RBAC)"
+                            Command="{Binding NavigateGrantsCommand}"
                             HorizontalAlignment="Stretch"
                             HorizontalContentAlignment="Left"
                             Padding="16,11"
@@ -118,9 +119,8 @@
             </Grid>
         </Border>
 
-        <!-- Right Main Content Area -->
-        <ContentControl Grid.Column="1"
-                        Content="{Binding CurrentPage}"
-                        Background="#FFFFFF" />
+        <!-- Right Main Content Area: Hosts AdminPanelView -->
+        <views:AdminPanelView Grid.Column="1"
+                              DataContext="{Binding AdminPanelVm}" />
     </Grid>
 </UserControl>

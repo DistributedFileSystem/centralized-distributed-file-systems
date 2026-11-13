@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -16,7 +17,7 @@ public sealed class LoginViewModel : ViewModelBase
         "login_state.json");
 
     private readonly IDfsClient _client;
-    private readonly Action<LoginResponse> _onLoginSuccess;
+    private readonly Action<LoginResponse, string> _onLoginSuccess;
 
     private string _username = "demo";
     private string _password = "demo";
@@ -25,6 +26,7 @@ public sealed class LoginViewModel : ViewModelBase
     private bool _isPasswordRevealed;
     private string _errorMessage = "";
     private bool _isBusy;
+    private int _selectedModeIndex = 0; // 0: Auto, 1: User Client, 2: Admin Panel
 
     public string Username
     {
@@ -84,25 +86,41 @@ public sealed class LoginViewModel : ViewModelBase
         set => SetProperty(ref _isBusy, value);
     }
 
+    public int SelectedModeIndex
+    {
+        get => _selectedModeIndex;
+        set => SetProperty(ref _selectedModeIndex, value);
+    }
+
+    public IReadOnlyList<string> AvailableModes { get; } = new[]
+    {
+        "🔄 Tự động (Theo quyền tài khoản)",
+        "📁 User Client (Giao diện Người dùng)",
+        "🛡️ Admin Panel (Giao diện Quản trị viên)"
+    };
+
     public ICommand LoginCommand { get; }
-    public ICommand FillDemoAccountCommand { get; }
     public ICommand TogglePasswordRevealCommand { get; }
     public ICommand DismissErrorCommand { get; }
 
-    public LoginViewModel(IDfsClient client, Action<LoginResponse> onLoginSuccess)
+    public LoginViewModel(IDfsClient client, Action<LoginResponse, string> onLoginSuccess)
     {
         _client = client;
         _onLoginSuccess = onLoginSuccess;
 
         LoadSavedState();
 
-        LoginCommand = new RelayCommand(async () => await ExecuteLoginAsync());
-        FillDemoAccountCommand = new RelayCommand(() =>
+        LoginCommand = new RelayCommand(async () =>
         {
-            Username = "demo";
-            Password = "demo";
-            ErrorMessage = "";
+            var mode = SelectedModeIndex switch
+            {
+                1 => "user",
+                2 => "admin",
+                _ => "auto"
+            };
+            await ExecuteLoginAsync(mode);
         });
+
         TogglePasswordRevealCommand = new RelayCommand(() => IsPasswordRevealed = !IsPasswordRevealed);
         DismissErrorCommand = new RelayCommand(() => ErrorMessage = "");
     }
@@ -161,7 +179,7 @@ public sealed class LoginViewModel : ViewModelBase
         }
     }
 
-    private async Task ExecuteLoginAsync()
+    private async Task ExecuteLoginAsync(string targetMode)
     {
         if (IsBusy) return;
 
@@ -188,13 +206,13 @@ public sealed class LoginViewModel : ViewModelBase
 
             var response = await _client.LoginAsync(Username.Trim(), Password);
             SaveLoginState();
-            _onLoginSuccess(response);
+            _onLoginSuccess(response, targetMode);
         }
         catch (DfsException ex)
         {
             ErrorMessage = ex.Code switch
             {
-                ErrorCode.Unauthorized => "Tên đăng nhập hoặc mật khẩu không chính xác.",
+                ErrorCode.Unauthorized => "Tên đăng nhập hoặc mật khẩu không chính xác (Thử demo/demo).",
                 ErrorCode.Forbidden => "Tài khoản của bạn đã bị Quản trị viên vô hiệu hóa.",
                 ErrorCode.Unavailable => $"Máy chủ Metadata tại {_endpoint} hiện không khả dụng. Vui lòng kiểm tra lại dịch vụ.",
                 _ => $"Lỗi xác thực: {ex.Message} ({ex.Code})"

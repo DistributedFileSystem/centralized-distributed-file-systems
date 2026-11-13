@@ -137,26 +137,12 @@
                              IsEnabled="{Binding !IsBusy}" />
                 </StackPanel>
 
-                <!-- Options Row: Remember Me & Quick Demo Fill -->
-                <Grid ColumnDefinitions="*,Auto">
-                    <CheckBox Grid.Column="0"
-                              Content="Ghi nhớ tên đăng nhập"
-                              IsChecked="{Binding RememberMe}"
-                              FontSize="12"
-                              Foreground="#475569"
-                              IsEnabled="{Binding !IsBusy}" />
-
-                    <Button Grid.Column="1"
-                            Content="⚡ Điền (demo/demo)"
-                            Command="{Binding FillDemoAccountCommand}"
-                            Padding="8,4"
-                            FontSize="11"
-                            Background="#EFF6FF"
-                            Foreground="#0284C7"
-                            BorderThickness="0"
-                            CornerRadius="4"
-                            FontWeight="SemiBold" />
-                </Grid>
+                <!-- Options Row: Remember Me -->
+                <CheckBox Content="Ghi nhớ tên đăng nhập"
+                          IsChecked="{Binding RememberMe}"
+                          FontSize="12"
+                          Foreground="#475569"
+                          IsEnabled="{Binding !IsBusy}" />
 
                 <!-- Submit Button -->
                 <Button Content="ĐĂNG NHẬP"
@@ -171,48 +157,6 @@
                         HorizontalAlignment="Stretch"
                         HorizontalContentAlignment="Center"
                         VerticalContentAlignment="Center" />
-
-                <!-- Fast Test Options Separator -->
-                <Grid ColumnDefinitions="*,Auto,*" Margin="0,2">
-                    <Separator Grid.Column="0" Background="#E2E8F0" />
-                    <TextBlock Grid.Column="1" Text="hoặc kiểm thử nhanh 2 giao diện" FontSize="11" Foreground="#94A3B8" Margin="8,0" />
-                    <Separator Grid.Column="2" Background="#E2E8F0" />
-                </Grid>
-
-                <!-- Two Independent Launch Buttons -->
-                <Grid ColumnDefinitions="*,8,*">
-                    <Button Grid.Column="0"
-                            Content="📁 Mở User Client"
-                            Command="{Binding LoginAsUserDirectCommand}"
-                            IsEnabled="{Binding !IsBusy}"
-                            Height="36"
-                            Background="#F0FDF4"
-                            BorderBrush="#86EFAC"
-                            BorderThickness="1"
-                            Foreground="#166534"
-                            FontWeight="SemiBold"
-                            FontSize="12"
-                            CornerRadius="6"
-                            HorizontalAlignment="Stretch"
-                            HorizontalContentAlignment="Center"
-                            VerticalContentAlignment="Center" />
-
-                    <Button Grid.Column="2"
-                            Content="👑 Mở Admin Panel"
-                            Command="{Binding LoginAsAdminDirectCommand}"
-                            IsEnabled="{Binding !IsBusy}"
-                            Height="36"
-                            Background="#FAF5FF"
-                            BorderBrush="#D8B4FE"
-                            BorderThickness="1"
-                            Foreground="#6B21A8"
-                            FontWeight="SemiBold"
-                            FontSize="12"
-                            CornerRadius="6"
-                            HorizontalAlignment="Stretch"
-                            HorizontalContentAlignment="Center"
-                            VerticalContentAlignment="Center" />
-                </Grid>
 
                 <!-- Loading Indicator -->
                 <StackPanel Spacing="4" IsVisible="{Binding IsBusy}">

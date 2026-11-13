@@ -31,16 +31,6 @@
                         FontWeight="SemiBold"
                         FontSize="12" />
 
-                <Button Content="⚡ Mô phỏng lỗi Unavailable"
-                        Command="{Binding SimulateUnavailableCommand}"
-                        Padding="12,7"
-                        CornerRadius="6"
-                        Background="#FEF3C7"
-                        BorderBrush="#FDE68A"
-                        BorderThickness="1"
-                        Foreground="#B45309"
-                        FontSize="12" />
-
                 <Button Content="🧹 Xóa hoàn tất"
                         Command="{Binding ClearCompletedCommand}"
                         Padding="12,7"
@@ -150,8 +140,26 @@
         </Border>
 
         <!-- 5. Transfer Cards List -->
-        <ScrollViewer Grid.Row="4">
-            <ItemsControl ItemsSource="{Binding FilteredTransfers}">
+        <Grid Grid.Row="4">
+            <Border Padding="40"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    IsVisible="{Binding !Transfers.Count}">
+                <StackPanel HorizontalAlignment="Center" Spacing="8">
+                    <TextBlock Text="Chưa có tác vụ truyền tải nào"
+                               FontWeight="Bold"
+                               FontSize="14"
+                               Foreground="#64748B"
+                               HorizontalAlignment="Center" />
+                    <TextBlock Text="Các tác vụ Tải lên (Upload) hoặc Tải xuống (Download) từ Trình duyệt tệp sẽ xuất hiện tại đây."
+                               FontSize="12"
+                               Foreground="#94A3B8"
+                               HorizontalAlignment="Center" />
+                </StackPanel>
+            </Border>
+
+            <ScrollViewer IsVisible="{Binding Transfers.Count}">
+                <ItemsControl ItemsSource="{Binding FilteredTransfers}">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="m:UiTransferItem">
                         <Border Background="#FFFFFF"
@@ -305,6 +313,7 @@
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
         </ScrollViewer>
+        </Grid>
 
         <!-- MODAL OVERLAY: New Upload Dialog -->
         <Border Grid.RowSpan="5"

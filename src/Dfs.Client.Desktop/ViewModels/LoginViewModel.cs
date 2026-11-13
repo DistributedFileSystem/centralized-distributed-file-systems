@@ -100,9 +100,6 @@ public sealed class LoginViewModel : ViewModelBase
     };
 
     public ICommand LoginCommand { get; }
-    public ICommand LoginAsUserDirectCommand { get; }
-    public ICommand LoginAsAdminDirectCommand { get; }
-    public ICommand FillDemoAccountCommand { get; }
     public ICommand TogglePasswordRevealCommand { get; }
     public ICommand DismissErrorCommand { get; }
 
@@ -122,29 +119,6 @@ public sealed class LoginViewModel : ViewModelBase
                 _ => "auto"
             };
             await ExecuteLoginAsync(mode);
-        });
-
-        LoginAsUserDirectCommand = new RelayCommand(async () =>
-        {
-            Username = "demo";
-            Password = "demo";
-            SelectedModeIndex = 1;
-            await ExecuteLoginAsync("user");
-        });
-
-        LoginAsAdminDirectCommand = new RelayCommand(async () =>
-        {
-            Username = "demo";
-            Password = "demo";
-            SelectedModeIndex = 2;
-            await ExecuteLoginAsync("admin");
-        });
-
-        FillDemoAccountCommand = new RelayCommand(() =>
-        {
-            Username = "demo";
-            Password = "demo";
-            ErrorMessage = "";
         });
 
         TogglePasswordRevealCommand = new RelayCommand(() => IsPasswordRevealed = !IsPasswordRevealed);

@@ -177,8 +177,20 @@ public sealed class AdminPanelViewModel : ViewModelBase
     public UiGroupItem? SelectedGroup
     {
         get => _selectedGroup;
-        set => SetProperty(ref _selectedGroup, value);
+        set
+        {
+            if (SetProperty(ref _selectedGroup, value))
+            {
+                OnPropertyChanged(nameof(HasSelectedGroup));
+            }
+        }
     }
+
+    public bool HasSelectedGroup => _selectedGroup != null;
+
+    public int TotalUsersCount => Users.Count;
+    public int ActiveUsersCount => Users.Count(u => !u.Disabled);
+    public int DisabledUsersCount => Users.Count(u => u.Disabled);
 
     public string AddMemberUsername
     {
@@ -358,6 +370,10 @@ public sealed class AdminPanelViewModel : ViewModelBase
             var groups = await _client.ListGroupsAsync();
             Groups.Clear();
             foreach (var g in groups) Groups.Add(new UiGroupItem(g));
+            if (SelectedGroup == null || !Groups.Contains(SelectedGroup))
+            {
+                SelectedGroup = Groups.FirstOrDefault();
+            }
         }
         catch (NotSupportedException) { }
         catch (Exception ex)
@@ -643,6 +659,8 @@ public sealed class AdminPanelViewModel : ViewModelBase
         var auditors = new UiGroupItem("g-auditors", "Auditors", 1);
         auditors.Members.Add("cuong.khong");
         Groups.Add(auditors);
+
+        SelectedGroup = teamA;
 
         Grants.Clear();
         Grants.Add(new UiGrantItem("grant-01", BuiltInRoles.Owner, "User: an.nguyen", "/projects", true, "Trực tiếp"));

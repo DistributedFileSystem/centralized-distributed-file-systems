@@ -7,7 +7,7 @@
         mc:Ignorable="d" d:DesignWidth="1180" d:DesignHeight="740"
         x:Class="Dfs.Client.Desktop.MainWindow"
         x:DataType="vm:MainViewModel"
-        Title="Centralized Distributed File System - Desktop Client (v1.0.0)"
+        Title="{Binding WindowTitle}"
         Width="1180" Height="740"
         WindowStartupLocation="CenterScreen"
         FontFamily="Segoe UI, Noto Sans, Ubuntu, -apple-system, sans-serif">
@@ -16,153 +16,13 @@
         <DataTemplate DataType="{x:Type vm:LoginViewModel}">
             <views:LoginView />
         </DataTemplate>
-        <DataTemplate DataType="{x:Type vm:FileBrowserViewModel}">
-            <views:FileBrowserView />
+        <DataTemplate DataType="{x:Type vm:UserShellViewModel}">
+            <views:UserShellView />
         </DataTemplate>
-        <DataTemplate DataType="{x:Type vm:TransferManagerViewModel}">
-            <views:TransferManagerView />
-        </DataTemplate>
-        <DataTemplate DataType="{x:Type vm:AdminPanelViewModel}">
-            <views:AdminPanelView />
-        </DataTemplate>
-        <DataTemplate DataType="{x:Type vm:ClusterStatusViewModel}">
-            <views:ClusterStatusView />
+        <DataTemplate DataType="{x:Type vm:AdminShellViewModel}">
+            <views:AdminShellView />
         </DataTemplate>
     </Window.DataTemplates>
 
-    <Grid>
-        <!-- Unauthenticated State: Show Login directly -->
-        <ContentControl Content="{Binding CurrentPage}"
-                        IsVisible="{Binding IsNotLoggedIn}" />
-
-        <!-- Authenticated State: Sidebar + Dynamic Main Content -->
-        <Grid ColumnDefinitions="250,*" IsVisible="{Binding IsLoggedIn}">
-            <!-- Left Sidebar Navigation -->
-            <Border Grid.Column="0"
-                    Background="#0F172A"
-                    BorderBrush="#1E293B"
-                    BorderThickness="0,0,1,0">
-                <Grid RowDefinitions="Auto,*,Auto">
-                    <!-- Brand / App Header -->
-                    <Border Grid.Row="0" Padding="20,22" BorderBrush="#1E293B" BorderThickness="0,0,0,1">
-                        <StackPanel Spacing="6">
-                            <StackPanel Orientation="Horizontal" Spacing="10">
-                                <Border Width="38" Height="38" CornerRadius="8" Background="#0284C7" VerticalAlignment="Center">
-                                    <TextBlock Text="🗄️" FontSize="20" HorizontalAlignment="Center" VerticalAlignment="Center" />
-                                </Border>
-                                <StackPanel VerticalAlignment="Center">
-                                    <TextBlock Text="Centralized DFS"
-                                               FontSize="16"
-                                               FontWeight="Bold"
-                                               Foreground="#F8FAFC" />
-                                    <TextBlock Text="LAN 5 Node Cluster"
-                                               FontSize="11"
-                                               Foreground="#38BDF8"
-                                               FontWeight="SemiBold" />
-                                </StackPanel>
-                            </StackPanel>
-                        </StackPanel>
-                    </Border>
-
-                    <!-- Nav Buttons List -->
-                    <StackPanel Grid.Row="1" Spacing="6" Margin="12,14">
-                        <Button Content="📁  Tệp tin của tôi"
-                                Command="{Binding NavigateFilesCommand}"
-                                HorizontalAlignment="Stretch"
-                                HorizontalContentAlignment="Left"
-                                Padding="16,11"
-                                CornerRadius="6"
-                                Background="{Binding IsFilesTab, Converter={x:Null}}"
-                                Foreground="#F8FAFC"
-                                FontSize="13"
-                                FontWeight="SemiBold" />
-
-                        <Button Content="🚀  Hàng đợi truyền tải"
-                                Command="{Binding NavigateTransfersCommand}"
-                                HorizontalAlignment="Stretch"
-                                HorizontalContentAlignment="Left"
-                                Padding="16,11"
-                                CornerRadius="6"
-                                Foreground="#F8FAFC"
-                                FontSize="13"
-                                FontWeight="SemiBold" />
-
-                        <Button Content="🛡️  Bảng quản trị"
-                                Command="{Binding NavigateAdminCommand}"
-                                IsVisible="{Binding IsAdmin}"
-                                HorizontalAlignment="Stretch"
-                                HorizontalContentAlignment="Left"
-                                Padding="16,11"
-                                CornerRadius="6"
-                                Foreground="#F8FAFC"
-                                FontSize="13"
-                                FontWeight="SemiBold" />
-
-                        <Button Content="📊  Trạng thái cụm (LAN)"
-                                Command="{Binding NavigateClusterCommand}"
-                                HorizontalAlignment="Stretch"
-                                HorizontalContentAlignment="Left"
-                                Padding="16,11"
-                                CornerRadius="6"
-                                Foreground="#F8FAFC"
-                                FontSize="13"
-                                FontWeight="SemiBold" />
-                    </StackPanel>
-
-                    <!-- Bottom User Profile Card -->
-                    <Border Grid.Row="2"
-                            Background="#090D16"
-                            BorderBrush="#1E293B"
-                            BorderThickness="0,1,0,0"
-                            Padding="16,14">
-                        <Grid ColumnDefinitions="Auto,*,Auto" VerticalAlignment="Center">
-                            <!-- Circular Avatar with User Initial -->
-                            <Border Grid.Column="0"
-                                    Width="36" Height="36"
-                                    CornerRadius="18"
-                                    Background="#0284C7"
-                                    Margin="0,0,10,0">
-                                <TextBlock Text="👤"
-                                           FontSize="16"
-                                           HorizontalAlignment="Center"
-                                           VerticalAlignment="Center" />
-                            </Border>
-
-                            <!-- Username & Role -->
-                            <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
-                                <TextBlock Text="{Binding CurrentUser.Username}"
-                                           FontWeight="Bold"
-                                           FontSize="13"
-                                           Foreground="#F8FAFC"
-                                           TextTrimming="CharacterEllipsis" />
-                                <Border Background="#1E293B" CornerRadius="4" Padding="6,2" HorizontalAlignment="Left">
-                                    <TextBlock Text="{Binding IsAdmin, StringFormat='{}Vai trò: {0}'}"
-                                               FontSize="10"
-                                               Foreground="#94A3B8"
-                                               FontWeight="SemiBold" />
-                                </Border>
-                            </StackPanel>
-
-                            <!-- Logout Button -->
-                            <Button Grid.Column="2"
-                                    Content="🚪 Thoát"
-                                    Command="{Binding LogoutCommand}"
-                                    Padding="8,5"
-                                    FontSize="11"
-                                    CornerRadius="4"
-                                    Background="#1E293B"
-                                    Foreground="#F8FAFC"
-                                    BorderThickness="0"
-                                    VerticalAlignment="Center" />
-                        </Grid>
-                    </Border>
-                </Grid>
-            </Border>
-
-            <!-- Right Main Work Area -->
-            <ContentControl Grid.Column="1"
-                            Content="{Binding CurrentPage}"
-                            Background="#FFFFFF" />
-        </Grid>
-    </Grid>
+    <ContentControl Content="{Binding CurrentPage}" />
 </Window>

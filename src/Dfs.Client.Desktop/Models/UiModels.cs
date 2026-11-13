@@ -1,7 +1,53 @@
 using System;
+using System.Collections.ObjectModel;
+using System.ComponentModel;
 using Dfs.Shared.Messages;
 
 namespace Dfs.Client.Desktop.Models;
+
+public sealed class UiDirectoryNode : INotifyPropertyChanged
+{
+    private bool _isExpanded = true;
+    private bool _isSelected;
+
+    public string Name { get; set; } = "";
+    public string FullPath { get; set; } = "/";
+    public ObservableCollection<UiDirectoryNode> Children { get; } = [];
+
+    public bool IsExpanded
+    {
+        get => _isExpanded;
+        set
+        {
+            if (_isExpanded != value)
+            {
+                _isExpanded = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsExpanded)));
+            }
+        }
+    }
+
+    public bool IsSelected
+    {
+        get => _isSelected;
+        set
+        {
+            if (_isSelected != value)
+            {
+                _isSelected = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsSelected)));
+            }
+        }
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    public UiDirectoryNode(string name, string fullPath)
+    {
+        Name = name;
+        FullPath = fullPath;
+    }
+}
 
 public sealed class UiFileItem
 {

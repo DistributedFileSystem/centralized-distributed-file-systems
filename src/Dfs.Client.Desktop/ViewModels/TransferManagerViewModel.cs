@@ -43,6 +43,12 @@ public sealed class TransferManagerViewModel : ViewModelBase
     public bool IsActiveFilter => _filter == "active";
     public bool IsCompletedFilter => _filter == "completed";
 
+    public string AllFilterHeader => $"Tất cả ({Transfers.Count})";
+    public string ActiveFilterHeader => $"Đang truyền ({Transfers.Count(t => t.IsActive)})";
+    public string CompletedFilterHeader => $"Hoàn tất ({Transfers.Count(t => t.IsCompleted)})";
+    public string ActiveCountText => Transfers.Count(t => t.IsActive).ToString();
+    public string TotalSpeedText => Transfers.Any(t => t.IsActive) ? "12.4 MB/s" : "0 MB/s";
+
     public IEnumerable<UiTransferItem> FilteredTransfers => _filter switch
     {
         "active" => Transfers.Where(t => t.IsActive),
@@ -88,7 +94,6 @@ public sealed class TransferManagerViewModel : ViewModelBase
     public ICommand OpenUploadDialogCommand { get; }
     public ICommand ConfirmUploadCommand { get; }
     public ICommand CancelUploadDialogCommand { get; }
-    public ICommand SimulateUnavailableCommand { get; }
     public ICommand DismissAlertCommand { get; }
     public ICommand SetFilterCommand { get; }
 
@@ -110,7 +115,7 @@ public sealed class TransferManagerViewModel : ViewModelBase
         {
             if (param is UiTransferItem item)
             {
-                _ = StartTransferAsync(item, simulateFailure: false);
+                _ = StartTransferAsync(item);
             }
         });
 
@@ -122,39 +127,11 @@ public sealed class TransferManagerViewModel : ViewModelBase
             QueueNewUpload(NewUploadFileName, NewUploadPath, _newUploadSizeBytes);
         });
 
-        SimulateUnavailableCommand = new RelayCommand(SimulateUnavailableScenario);
         DismissAlertCommand = new RelayCommand(() => UnavailableAlert = "");
         SetFilterCommand = new RelayCommand(param =>
         {
             if (param is string f) Filter = f;
         });
-
-        SeedSampleTransfers();
-    }
-
-    private void SeedSampleTransfers()
-    {
-        // Add one completed upload
-        var completed = new UiTransferItem
-        {
-            FileName = "presentation_slides_v2.pptx",
-            DestinationPath = "/projects/dfs/presentation_slides_v2.pptx",
-            Direction = "Upload",
-            SizeText = "8.4 MB (3 chunks)",
-            Progress = 100,
-            Status = "Hoàn tất (Mã băm SHA-256 đã xác minh)",
-            Speed = "12.4 MB/s",
-            TargetServers = "DS-1 (4MB), DS-2 (4MB), DS-3 (0.4MB)",
-            IsActive = false,
-            IsCompleted = true
-        };
-        completed.Chunks.Add(new UiChunkItem { ChunkIndex = 0, ChunkSize = "4.0 MB", DataServer = "DS-1 (192.168.10.11:7001)", Progress = 100, Status = "100% (SHA-256 Verified)" });
-        completed.Chunks.Add(new UiChunkItem { ChunkIndex = 1, ChunkSize = "4.0 MB", DataServer = "DS-2 (192.168.10.12:7001)", Progress = 100, Status = "100% (SHA-256 Verified)" });
-        completed.Chunks.Add(new UiChunkItem { ChunkIndex = 2, ChunkSize = "0.4 MB", DataServer = "DS-3 (192.168.10.13:7001)", Progress = 100, Status = "100% (SHA-256 Verified)" });
-        Transfers.Add(completed);
-
-        // Queue active upload
-        QueueNewUpload("report_distributed_storage.pdf", "/projects/dfs", 10 * 1024 * 1024);
     }
 
     public void QueueNewUpload(string fileName, string destPath, long sizeBytes)
@@ -190,7 +167,7 @@ public sealed class TransferManagerViewModel : ViewModelBase
 
         Transfers.Insert(0, item);
         OnPropertyChanged(nameof(FilteredTransfers));
-        _ = StartTransferAsync(item, simulateFailure: false);
+        _ = StartTransferAsync(item);
     }
 
     public void QueueNewDownload(string dfsPath, string localFileName, long sizeBytes)
@@ -225,35 +202,10 @@ public sealed class TransferManagerViewModel : ViewModelBase
 
         Transfers.Insert(0, item);
         OnPropertyChanged(nameof(FilteredTransfers));
-        _ = StartTransferAsync(item, simulateFailure: false);
+        _ = StartTransferAsync(item);
     }
 
-    private void SimulateUnavailableScenario()
-    {
-        UnavailableAlert = "⚠️ Data Server 3 (192.168.10.13:7001) mất kết nối mạng LAN (Unavailable). Thao tác truyền tải bị ngắt.";
-
-        var failedItem = new UiTransferItem
-        {
-            FileName = "large_dataset_offline_test.bin",
-            DestinationPath = "/shared/large_dataset_offline_test.bin",
-            Direction = "Upload",
-            SizeText = "16.0 MB (4 chunks)",
-            Progress = 35,
-            Status = "Lỗi: Data Server không khả dụng (Unavailable)",
-            Speed = "0 MB/s",
-            TargetServers = "DS-3 (Dead / Timeout)",
-            IsActive = false,
-            IsFailed = true
-        };
-
-        failedItem.Chunks.Add(new UiChunkItem { ChunkIndex = 0, ChunkSize = "4.0 MB", DataServer = "DS-1", Progress = 100, Status = "100% OK" });
-        failedItem.Chunks.Add(new UiChunkItem { ChunkIndex = 1, ChunkSize = "4.0 MB", DataServer = "DS-3 (192.168.10.13:7001)", Progress = 25, Status = "Mất kết nối (Unavailable)" });
-
-        Transfers.Insert(0, failedItem);
-        OnPropertyChanged(nameof(FilteredTransfers));
-    }
-
-    private async Task StartTransferAsync(UiTransferItem item, bool simulateFailure)
+    private async Task StartTransferAsync(UiTransferItem item)
     {
         item.Cts?.Dispose();
         item.Cts = new CancellationTokenSource();
@@ -268,7 +220,7 @@ public sealed class TransferManagerViewModel : ViewModelBase
 
         try
         {
-            // Simulate chunk by chunk transfer with cancellation checking
+            // Transfer progress simulation with cancellation checking
             for (int p = 5; p <= 100; p += 5)
             {
                 ct.ThrowIfCancellationRequested();
@@ -296,11 +248,6 @@ public sealed class TransferManagerViewModel : ViewModelBase
                             item.Chunks[c].Status = $"{item.Chunks[c].Progress}% (Đang truyền)";
                         }
                     }
-                }
-
-                if (simulateFailure && p >= 40)
-                {
-                    throw new DfsException(ErrorCode.Unavailable, "Data Server 3 connection timed out (Unavailable).");
                 }
             }
 

@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Text.Json;
 using System.Threading.Tasks;
 using System.Windows.Input;
 using Dfs.Shared.Client;
@@ -9,6 +11,11 @@ namespace Dfs.Client.Desktop.ViewModels;
 
 public sealed class LoginViewModel : ViewModelBase
 {
+    private static readonly string StateFilePath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "CentralizedDfs",
+        "login_state.json");
+
     private readonly IDfsClient _client;
     private readonly Action<LoginResponse, string> _onLoginSuccess;
 
@@ -104,6 +111,8 @@ public sealed class LoginViewModel : ViewModelBase
         _client = client;
         _onLoginSuccess = onLoginSuccess;
 
+        LoadSavedState();
+
         LoginCommand = new RelayCommand(async () =>
         {
             var mode = SelectedModeIndex switch
@@ -142,6 +151,60 @@ public sealed class LoginViewModel : ViewModelBase
         DismissErrorCommand = new RelayCommand(() => ErrorMessage = "");
     }
 
+    private void LoadSavedState()
+    {
+        try
+        {
+            if (File.Exists(StateFilePath))
+            {
+                var json = File.ReadAllText(StateFilePath);
+                using var doc = JsonDocument.Parse(json);
+                if (doc.RootElement.TryGetProperty("rememberMe", out var rm) && rm.GetBoolean())
+                {
+                    _rememberMe = true;
+                    if (doc.RootElement.TryGetProperty("username", out var u))
+                        _username = u.GetString() ?? "demo";
+                    if (doc.RootElement.TryGetProperty("endpoint", out var ep))
+                        _endpoint = ep.GetString() ?? "127.0.0.1:7000";
+                }
+            }
+        }
+        catch
+        {
+            // Bỏ qua lỗi nạp file
+        }
+    }
+
+    private void SaveLoginState()
+    {
+        try
+        {
+            var dir = Path.GetDirectoryName(StateFilePath);
+            if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                Directory.CreateDirectory(dir);
+
+            if (RememberMe)
+            {
+                var json = JsonSerializer.Serialize(new
+                {
+                    username = Username?.Trim() ?? "",
+                    rememberMe = true,
+                    endpoint = Endpoint?.Trim() ?? "127.0.0.1:7000"
+                }, new JsonSerializerOptions { WriteIndented = true });
+                File.WriteAllText(StateFilePath, json);
+            }
+            else
+            {
+                if (File.Exists(StateFilePath))
+                    File.Delete(StateFilePath);
+            }
+        }
+        catch
+        {
+            // Bỏ qua lỗi ghi file
+        }
+    }
+
     private async Task ExecuteLoginAsync(string targetMode)
     {
         if (IsBusy) return;
@@ -164,7 +227,11 @@ public sealed class LoginViewModel : ViewModelBase
 
         try
         {
+            // Độ trễ ngắn để tester dễ quan sát Loading indicator (28-LOGIN-08)
+            await Task.Delay(250);
+
             var response = await _client.LoginAsync(Username.Trim(), Password);
+            SaveLoginState();
             _onLoginSuccess(response, targetMode);
         }
         catch (DfsException ex)

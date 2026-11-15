@@ -125,5 +125,44 @@ public class MetadataServerHostTests : IDisposable
         await host.StopAsync();
         Assert.False(host.IsRunning);
     }
+
+    [Fact]
+    public async Task Host_handles_login_logout_and_rejects_invalid_credentials_over_tcp()
+    {
+        var host = CreateHost();
+        await host.StartAsync();
+
+        using var client = new TcpClient();
+        await client.ConnectAsync("127.0.0.1", host.BoundPort);
+        await using var stream = client.GetStream();
+        await HandshakeHandler.ClientHandshakeAsync(stream, new Hello("hello-1", 1, NodeType.Client));
+
+        await FrameCodec.WriteMessageAsync(stream, MessageType.Login, new Login("bad-1", "admin", "wrong"));
+        var badFrame = await FrameCodec.ReadRawFrameAsync(stream);
+        Assert.NotNull(badFrame);
+        Assert.Equal(MessageType.Error, badFrame.Type);
+        var error = FrameSerialization.DeserializeJson<ErrorResponse>(badFrame.Payload);
+        Assert.Equal("bad-1", error.RequestId);
+        Assert.Equal(ErrorCode.Unauthorized, error.Code);
+
+        await FrameCodec.WriteMessageAsync(stream, MessageType.Login, new Login("login-1", "admin", "pwd"));
+        var login = await FrameCodec.ReadMessageAsync<LoginResponse>(stream, MessageType.LoginResponse);
+        Assert.NotNull(login);
+        Assert.Equal("login-1", login.RequestId);
+        Assert.Contains("Admin", login.SystemRoles);
+        Assert.NotNull(await host.Store.FindSessionAsync(login.Session));
+
+        await FrameCodec.WriteMessageAsync(stream, MessageType.Logout, new Logout("logout-1", login.Session));
+        var logout = await FrameCodec.ReadMessageAsync<LogoutResponse>(stream, MessageType.LogoutResponse);
+        Assert.Equal("logout-1", logout?.RequestId);
+        Assert.Null(await host.Store.FindSessionAsync(login.Session));
+
+        await FrameCodec.WriteMessageAsync(stream, MessageType.Logout, new Logout("logout-2", login.Session));
+        var missingFrame = await FrameCodec.ReadRawFrameAsync(stream);
+        Assert.NotNull(missingFrame);
+        Assert.Equal(MessageType.Error, missingFrame.Type);
+        Assert.Equal(ErrorCode.Unauthorized,
+            FrameSerialization.DeserializeJson<ErrorResponse>(missingFrame.Payload).Code);
+    }
 }
 

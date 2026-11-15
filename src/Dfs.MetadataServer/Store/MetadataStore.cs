@@ -83,14 +83,14 @@ public sealed class MetadataStore : IMetadataStore, IDisposable
 
     /// <inheritdoc />
     public Task<IReadOnlyList<RoleInfo>> ListRolesAsync(CancellationToken cancellationToken = default) =>
-        Task.FromResult<IReadOnlyList<RoleInfo>>(Array.Empty<RoleInfo>());
+        Read(() => _state.ListRoles());
 
     /// <inheritdoc />
     public Task<IReadOnlyList<GrantInfo>> ListGrantsAsync(string? itemId, string? subjectId, bool systemOnly, CancellationToken cancellationToken = default) =>
-        Task.FromResult<IReadOnlyList<GrantInfo>>(Array.Empty<GrantInfo>());
+        Read(() => _state.ListGrants(itemId, subjectId, systemOnly));
 
     /// <inheritdoc />
-    public Task<SessionRecord?> FindSessionAsync(string token, CancellationToken cancellationToken = default) => Task.FromResult<SessionRecord?>(null);
+    public Task<SessionRecord?> FindSessionAsync(string token, CancellationToken cancellationToken = default) => Read(() => _state.FindSession(token));
 
     /// <inheritdoc />
     public Task<IReadOnlyList<DataServerInfo>> ListDataServersAsync(CancellationToken cancellationToken = default) =>

@@ -4,6 +4,7 @@ using System.Net.Sockets;
 using System.Text.Json;
 using Dfs.MetadataServer.Config;
 using Dfs.MetadataServer.Handlers;
+using Dfs.MetadataServer.Security;
 using Dfs.MetadataServer.Store;
 using Dfs.Shared.Framing;
 using Dfs.Shared.Messages;
@@ -20,6 +21,7 @@ public sealed class MetadataServerHost : IAsyncDisposable
 {
     private readonly bool _ownsStore;
     private readonly NamespaceHandler _namespaceHandler;
+    private readonly SessionService _sessions;
     private readonly ConcurrentDictionary<Task, bool> _activeConnections = new();
     private TcpListener? _listener;
     private CancellationTokenSource? _cts;
@@ -59,18 +61,22 @@ public sealed class MetadataServerHost : IAsyncDisposable
         }
 
         _namespaceHandler = new NamespaceHandler(Store, authorizer);
+        _sessions = new SessionService(Store);
     }
 
     /// <summary>
     /// Starts the TCP listener on the configured port and begins accepting connections.
     /// </summary>
     /// <param name="cancellationToken">Cancellation token.</param>
-    public Task StartAsync(CancellationToken cancellationToken = default)
+    public async Task StartAsync(CancellationToken cancellationToken = default)
     {
         if (_listener is not null)
         {
             throw new InvalidOperationException("MetadataServerHost is already running.");
         }
+
+        await _sessions.BootstrapAdminAsync(Config.AdminUser, Config.AdminPassword, cancellationToken)
+            .ConfigureAwait(false);
 
         _cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         _listener = new TcpListener(IPAddress.Any, Config.ListenPort);
@@ -79,7 +85,6 @@ public sealed class MetadataServerHost : IAsyncDisposable
         BoundPort = ((IPEndPoint)_listener.LocalEndpoint).Port;
         _acceptLoopTask = Task.Run(() => AcceptLoopAsync(_cts.Token), CancellationToken.None);
 
-        return Task.CompletedTask;
     }
 
     /// <summary>
@@ -229,6 +234,36 @@ public sealed class MetadataServerHost : IAsyncDisposable
                     }
 
                     await DispatchFrameAsync(stream, frame, cancellationToken).ConfigureAwait(false);
+                    var requestId = string.Empty;
+                    try
+                    {
+                        switch (frame.Type)
+                        {
+                            case MessageType.Login:
+                            {
+                                var request = FrameSerialization.DeserializeJson<Login>(frame.Payload);
+                                requestId = request.RequestId ?? string.Empty;
+                                var response = await _sessions.LoginAsync(request, cancellationToken).ConfigureAwait(false);
+                                await FrameCodec.WriteMessageAsync(stream, MessageType.LoginResponse, response, cancellationToken).ConfigureAwait(false);
+                                break;
+                            }
+                            case MessageType.Logout:
+                            {
+                                var request = FrameSerialization.DeserializeJson<Logout>(frame.Payload);
+                                requestId = request.RequestId ?? string.Empty;
+                                var response = await _sessions.LogoutAsync(request, cancellationToken).ConfigureAwait(false);
+                                await FrameCodec.WriteMessageAsync(stream, MessageType.LogoutResponse, response, cancellationToken).ConfigureAwait(false);
+                                break;
+                            }
+                            default:
+                                throw new DfsException(ErrorCode.BadRequest, $"Unsupported metadata message {frame.Type}.");
+                        }
+                    }
+                    catch (DfsException e)
+                    {
+                        await FrameCodec.WriteMessageAsync(stream, MessageType.Error,
+                            new ErrorResponse(requestId, e.Code, e.Message), cancellationToken).ConfigureAwait(false);
+                    }
                 }
             }
             catch (DfsException)

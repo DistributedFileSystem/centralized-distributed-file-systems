@@ -40,13 +40,31 @@
 | [docs/test-plan.md](docs/test-plan.md) | Kế hoạch test và demo script |
 | [docs/adr/](docs/adr/) | Architecture Decision Records |
 
-## Chạy nhanh (sẽ có ở milestone M1)
+## Chạy nhanh
+
+### 1 máy (1 Metadata Server + 5 Data Server)
+
+File mẫu cấu hình đặt tại [deploy/env/local.example.env](deploy/env/local.example.env) (copy thành `deploy/.env` để chỉnh giá trị local, không commit secret):
 
 ```bash
-# 1 máy: 1 Metadata Server + 5 Data Server
-docker compose -f deploy/docker-compose.yml up --build
+# Khởi động cả cluster (1 metadata + 5 data) bằng file env mẫu
+docker compose -f deploy/docker-compose.yml --env-file deploy/env/local.example.env up --build -d
 
-# 5 laptop: mỗi laptop một file env riêng
+# Chỉ chạy Metadata Server (khi dev Data Server / Client trong IDE)
+docker compose -f deploy/docker-compose.yml --profile metadata up --build -d
+
+# Theo dõi trạng thái và log
+docker compose -f deploy/docker-compose.yml --env-file deploy/env/local.example.env ps -a
+docker compose -f deploy/docker-compose.yml --env-file deploy/env/local.example.env logs -f
+
+# Dừng cluster và xoá volume
+docker compose -f deploy/docker-compose.yml --env-file deploy/env/local.example.env down -v
+```
+
+### 5 laptop (LAN cluster, sẽ có ở milestone M3-02)
+
+```bash
+# Mỗi laptop một file env riêng
 docker compose -f deploy/node.yml --env-file deploy/env/laptop1.env up --build
 ```
 

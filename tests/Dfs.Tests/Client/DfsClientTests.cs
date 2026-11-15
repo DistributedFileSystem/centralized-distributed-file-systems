@@ -269,12 +269,12 @@ public class DfsClientTests : IAsyncDisposable
     public async Task ServerError_ThrowsDfsException_WithCorrectErrorCode()
     {
         await using var mock = new MockMetadataServer();
-        mock.RejectWith = ErrorCode.AlreadyExists;
         mock.Start();
 
         var client = Register(new DfsClient(mock.Address));
         await client.LoginAsync("alice", "secret");
 
+        mock.RejectWith = ErrorCode.AlreadyExists;
         var ex = await Assert.ThrowsAsync<DfsException>(() => client.CreateFolderAsync("/duplicate"));
         Assert.Equal(ErrorCode.AlreadyExists, ex.Code);
     }

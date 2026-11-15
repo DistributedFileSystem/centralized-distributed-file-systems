@@ -275,8 +275,9 @@ public sealed class NamespaceHandlerTests : IDisposable
             stream, MessageType.ListDir, new ListDir("err-missing", Session, "/missing"))).Code);
 
         // Unsupported frame keeps connection alive; valid Stat still succeeds afterward.
+        // Note: ReadChunk is a DataServer message, so sending it to MetadataServer is unsupported (BadRequest).
         var unsupported = await RequestExpectErrorAsync(
-            stream, MessageType.Login, new Login("err-unsup", "alice", "pwd"));
+            stream, MessageType.ReadChunk, new ReadChunk("err-unsup", "chunk-1", "token-xyz"));
         Assert.Equal(ErrorCode.BadRequest, unsupported.Code);
         Assert.Equal("err-unsup", unsupported.RequestId);
 

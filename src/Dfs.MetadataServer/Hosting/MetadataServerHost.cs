@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
 using Dfs.MetadataServer.Config;
+using Dfs.MetadataServer.Security;
 using Dfs.MetadataServer.Store;
 using Dfs.Shared.Framing;
 using Dfs.Shared.Messages;
@@ -16,6 +17,7 @@ namespace Dfs.MetadataServer.Hosting;
 public sealed class MetadataServerHost : IAsyncDisposable
 {
     private readonly bool _ownsStore;
+    private readonly SessionService _sessions;
     private readonly ConcurrentDictionary<Task, bool> _activeConnections = new();
     private TcpListener? _listener;
     private CancellationTokenSource? _cts;
@@ -52,18 +54,22 @@ public sealed class MetadataServerHost : IAsyncDisposable
             Store = new MetadataStore(config.OpLogPath, config.DatabasePath);
             _ownsStore = true;
         }
+        _sessions = new SessionService(Store);
     }
 
     /// <summary>
     /// Starts the TCP listener on the configured port and begins accepting connections.
     /// </summary>
     /// <param name="cancellationToken">Cancellation token.</param>
-    public Task StartAsync(CancellationToken cancellationToken = default)
+    public async Task StartAsync(CancellationToken cancellationToken = default)
     {
         if (_listener is not null)
         {
             throw new InvalidOperationException("MetadataServerHost is already running.");
         }
+
+        await _sessions.BootstrapAdminAsync(Config.AdminUser, Config.AdminPassword, cancellationToken)
+            .ConfigureAwait(false);
 
         _cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         _listener = new TcpListener(IPAddress.Any, Config.ListenPort);
@@ -72,7 +78,6 @@ public sealed class MetadataServerHost : IAsyncDisposable
         BoundPort = ((IPEndPoint)_listener.LocalEndpoint).Port;
         _acceptLoopTask = Task.Run(() => AcceptLoopAsync(_cts.Token), CancellationToken.None);
 
-        return Task.CompletedTask;
     }
 
     /// <summary>
@@ -202,8 +207,6 @@ public sealed class MetadataServerHost : IAsyncDisposable
                     return;
                 }
 
-                // Stage 1 skeleton: connection handshake succeeded.
-                // Keep reading frames until the client closes the connection or cancellation is triggered.
                 while (!cancellationToken.IsCancellationRequested)
                 {
                     var frame = await FrameCodec.ReadRawFrameAsync(stream, cancellationToken).ConfigureAwait(false);
@@ -211,9 +214,36 @@ public sealed class MetadataServerHost : IAsyncDisposable
                     {
                         break;
                     }
-
-                    // In milestone M2, operation message handlers (auth, namespace, upload, cluster)
-                    // will dispatch from this frame read loop.
+                    var requestId = string.Empty;
+                    try
+                    {
+                        switch (frame.Type)
+                        {
+                            case MessageType.Login:
+                            {
+                                var request = FrameSerialization.DeserializeJson<Login>(frame.Payload);
+                                requestId = request.RequestId ?? string.Empty;
+                                var response = await _sessions.LoginAsync(request, cancellationToken).ConfigureAwait(false);
+                                await FrameCodec.WriteMessageAsync(stream, MessageType.LoginResponse, response, cancellationToken).ConfigureAwait(false);
+                                break;
+                            }
+                            case MessageType.Logout:
+                            {
+                                var request = FrameSerialization.DeserializeJson<Logout>(frame.Payload);
+                                requestId = request.RequestId ?? string.Empty;
+                                var response = await _sessions.LogoutAsync(request, cancellationToken).ConfigureAwait(false);
+                                await FrameCodec.WriteMessageAsync(stream, MessageType.LogoutResponse, response, cancellationToken).ConfigureAwait(false);
+                                break;
+                            }
+                            default:
+                                throw new DfsException(ErrorCode.BadRequest, $"Unsupported metadata message {frame.Type}.");
+                        }
+                    }
+                    catch (DfsException e)
+                    {
+                        await FrameCodec.WriteMessageAsync(stream, MessageType.Error,
+                            new ErrorResponse(requestId, e.Code, e.Message), cancellationToken).ConfigureAwait(false);
+                    }
                 }
             }
             catch (DfsException)

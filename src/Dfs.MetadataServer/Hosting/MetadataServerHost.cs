@@ -234,36 +234,6 @@ public sealed class MetadataServerHost : IAsyncDisposable
                     }
 
                     await DispatchFrameAsync(stream, frame, cancellationToken).ConfigureAwait(false);
-                    var requestId = string.Empty;
-                    try
-                    {
-                        switch (frame.Type)
-                        {
-                            case MessageType.Login:
-                            {
-                                var request = FrameSerialization.DeserializeJson<Login>(frame.Payload);
-                                requestId = request.RequestId ?? string.Empty;
-                                var response = await _sessions.LoginAsync(request, cancellationToken).ConfigureAwait(false);
-                                await FrameCodec.WriteMessageAsync(stream, MessageType.LoginResponse, response, cancellationToken).ConfigureAwait(false);
-                                break;
-                            }
-                            case MessageType.Logout:
-                            {
-                                var request = FrameSerialization.DeserializeJson<Logout>(frame.Payload);
-                                requestId = request.RequestId ?? string.Empty;
-                                var response = await _sessions.LogoutAsync(request, cancellationToken).ConfigureAwait(false);
-                                await FrameCodec.WriteMessageAsync(stream, MessageType.LogoutResponse, response, cancellationToken).ConfigureAwait(false);
-                                break;
-                            }
-                            default:
-                                throw new DfsException(ErrorCode.BadRequest, $"Unsupported metadata message {frame.Type}.");
-                        }
-                    }
-                    catch (DfsException e)
-                    {
-                        await FrameCodec.WriteMessageAsync(stream, MessageType.Error,
-                            new ErrorResponse(requestId, e.Code, e.Message), cancellationToken).ConfigureAwait(false);
-                    }
                 }
             }
             catch (DfsException)
@@ -289,14 +259,34 @@ public sealed class MetadataServerHost : IAsyncDisposable
     {
         try
         {
-            if (NamespaceHandler.CanHandle(frame.Type))
+            switch (frame.Type)
             {
-                var response = await _namespaceHandler.HandleAsync(frame, cancellationToken).ConfigureAwait(false);
-                await FrameCodec.WriteRawFrameAsync(stream, response.Type, response.Payload, cancellationToken).ConfigureAwait(false);
-                return;
-            }
+                case MessageType.Login:
+                {
+                    var request = FrameSerialization.DeserializeJson<Login>(frame.Payload);
+                    var response = await _sessions.LoginAsync(request, cancellationToken).ConfigureAwait(false);
+                    await FrameCodec.WriteMessageAsync(stream, MessageType.LoginResponse, response, cancellationToken).ConfigureAwait(false);
+                    return;
+                }
+                case MessageType.Logout:
+                {
+                    var request = FrameSerialization.DeserializeJson<Logout>(frame.Payload);
+                    var response = await _sessions.LogoutAsync(request, cancellationToken).ConfigureAwait(false);
+                    await FrameCodec.WriteMessageAsync(stream, MessageType.LogoutResponse, response, cancellationToken).ConfigureAwait(false);
+                    return;
+                }
+                default:
+                {
+                    if (NamespaceHandler.CanHandle(frame.Type))
+                    {
+                        var response = await _namespaceHandler.HandleAsync(frame, cancellationToken).ConfigureAwait(false);
+                        await FrameCodec.WriteRawFrameAsync(stream, response.Type, response.Payload, cancellationToken).ConfigureAwait(false);
+                        return;
+                    }
 
-            throw new DfsException(ErrorCode.BadRequest, $"Unsupported message type {frame.Type} (0x{(byte)frame.Type:X2}).");
+                    throw new DfsException(ErrorCode.BadRequest, $"Unsupported metadata message {frame.Type} (0x{(byte)frame.Type:X2}).");
+                }
+            }
         }
         catch (DfsException ex)
         {

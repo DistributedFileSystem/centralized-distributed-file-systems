@@ -1,4 +1,5 @@
 using System.Net.Sockets;
+using System.Text.Json;
 using Dfs.Shared.Client;
 using Dfs.Shared.Framing;
 using Dfs.Shared.Messages;
@@ -116,6 +117,19 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
     {
         ThrowIfDisposed();
 
+        await _streamLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await ConnectInternalAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _streamLock.Release();
+        }
+    }
+
+    private async Task ConnectInternalAsync(CancellationToken cancellationToken)
+    {
         if (IsConnected)
         {
             return;
@@ -141,8 +155,23 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
                 await tcpClient.ConnectAsync(host, port, timeoutCts.Token).ConfigureAwait(false);
                 var stream = tcpClient.GetStream();
 
-                var hello = new Hello(Guid.NewGuid().ToString("D"), 1, NodeType.Client);
+                var helloReqId = Guid.NewGuid().ToString("D");
+                var hello = new Hello(helloReqId, ProtocolConstants.CurrentProtocolVersion, NodeType.Client);
                 var response = await HandshakeHandler.ClientHandshakeAsync(stream, hello, timeoutCts.Token).ConfigureAwait(false);
+
+                if (response.ProtocolVersion != ProtocolConstants.CurrentProtocolVersion)
+                {
+                    throw new DfsException(
+                        ErrorCode.VersionMismatch,
+                        $"Connected node '{response.NodeId}' protocol version {response.ProtocolVersion} does not match expected {ProtocolConstants.CurrentProtocolVersion}.");
+                }
+
+                if (response.RequestId != helloReqId)
+                {
+                    throw new DfsException(
+                        ErrorCode.BadRequest,
+                        $"Hello response RequestId mismatch: expected '{helloReqId}', got '{response.RequestId}'.");
+                }
 
                 if (response.NodeType != NodeType.Metadata)
                 {
@@ -157,7 +186,12 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
                 _connectedNodeId = response.NodeId;
                 return;
             }
-            catch (Exception ex) when (ex is SocketException or IOException or DfsException or OperationCanceledException)
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                tcpClient?.Dispose();
+                throw;
+            }
+            catch (Exception ex)
             {
                 tcpClient?.Dispose();
                 errors.Add(new InvalidOperationException($"Endpoint '{endpoint}' failed: {ex.Message}", ex));
@@ -179,15 +213,24 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
             throw new DfsException(ErrorCode.BadRequest, "Username cannot be empty.");
         }
 
-        var req = new Login(Guid.NewGuid().ToString("D"), username, password);
+        var reqId = Guid.NewGuid().ToString("D");
+        var req = new Login(reqId, username, password);
         var res = await SendAndReceiveAsync<Login, LoginResponse>(
-            MessageType.Login, MessageType.LoginResponse, req, cancellationToken).ConfigureAwait(false);
+            reqId, MessageType.Login, MessageType.LoginResponse, req, cancellationToken).ConfigureAwait(false);
 
-        _session = res.Session;
-        _currentUser = res.User;
-        _systemRoles = res.SystemRoles;
-        _permissions = res.Permissions;
-        _sessionExpiresAt = res.ExpiresAt;
+        await _streamLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            _session = res.Session;
+            _currentUser = res.User;
+            _systemRoles = res.SystemRoles;
+            _permissions = res.Permissions;
+            _sessionExpiresAt = res.ExpiresAt;
+        }
+        finally
+        {
+            _streamLock.Release();
+        }
 
         return res;
     }
@@ -197,27 +240,47 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
     {
         ThrowIfDisposed();
 
-        if (_session is null)
+        string? sessionToRevoke;
+        await _streamLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            sessionToRevoke = _session;
+        }
+        finally
+        {
+            _streamLock.Release();
+        }
+
+        if (sessionToRevoke is null)
         {
             return;
         }
 
         try
         {
-            if (IsConnected)
-            {
-                var req = new Logout(Guid.NewGuid().ToString("D"), _session);
-                await SendAndReceiveAsync<Logout, LogoutResponse>(
-                    MessageType.Logout, MessageType.LogoutResponse, req, cancellationToken).ConfigureAwait(false);
-            }
+            var reqId = Guid.NewGuid().ToString("D");
+            var req = new Logout(reqId, sessionToRevoke);
+            await SendAndReceiveAsync<Logout, LogoutResponse>(
+                reqId, MessageType.Logout, MessageType.LogoutResponse, req, cancellationToken).ConfigureAwait(false);
         }
         catch (DfsException)
         {
-            // Ignore server-side logout failures (e.g. session already deleted/expired)
+            // Ignore server-side logout failures (e.g. network down, session already deleted/expired)
         }
         finally
         {
-            ClearSession();
+            await _streamLock.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+            try
+            {
+                if (_session == sessionToRevoke)
+                {
+                    ClearSession();
+                }
+            }
+            finally
+            {
+                _streamLock.Release();
+            }
         }
     }
 
@@ -227,9 +290,10 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
         ThrowIfDisposed();
         EnsureLoggedIn();
 
-        var req = new ListDir(Guid.NewGuid().ToString("D"), _session!, path);
+        var reqId = Guid.NewGuid().ToString("D");
+        var req = new ListDir(reqId, _session!, path);
         var res = await SendAndReceiveAsync<ListDir, ListDirResponse>(
-            MessageType.ListDir, MessageType.ListDirResponse, req, cancellationToken).ConfigureAwait(false);
+            reqId, MessageType.ListDir, MessageType.ListDirResponse, req, cancellationToken).ConfigureAwait(false);
         return res.Items;
     }
 
@@ -239,9 +303,10 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
         ThrowIfDisposed();
         EnsureLoggedIn();
 
-        var req = new Stat(Guid.NewGuid().ToString("D"), _session!, path);
+        var reqId = Guid.NewGuid().ToString("D");
+        var req = new Stat(reqId, _session!, path);
         var res = await SendAndReceiveAsync<Stat, StatResponse>(
-            MessageType.Stat, MessageType.StatResponse, req, cancellationToken).ConfigureAwait(false);
+            reqId, MessageType.Stat, MessageType.StatResponse, req, cancellationToken).ConfigureAwait(false);
         return res.Item;
     }
 
@@ -251,9 +316,10 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
         ThrowIfDisposed();
         EnsureLoggedIn();
 
-        var req = new ListVersions(Guid.NewGuid().ToString("D"), _session!, path);
+        var reqId = Guid.NewGuid().ToString("D");
+        var req = new ListVersions(reqId, _session!, path);
         var res = await SendAndReceiveAsync<ListVersions, ListVersionsResponse>(
-            MessageType.ListVersions, MessageType.ListVersionsResponse, req, cancellationToken).ConfigureAwait(false);
+            reqId, MessageType.ListVersions, MessageType.ListVersionsResponse, req, cancellationToken).ConfigureAwait(false);
         return res.Versions;
     }
 
@@ -263,9 +329,10 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
         ThrowIfDisposed();
         EnsureLoggedIn();
 
-        var req = new CreateFolder(Guid.NewGuid().ToString("D"), _session!, path);
+        var reqId = Guid.NewGuid().ToString("D");
+        var req = new CreateFolder(reqId, _session!, path);
         var res = await SendAndReceiveAsync<CreateFolder, CreateFolderResponse>(
-            MessageType.CreateFolder, MessageType.CreateFolderResponse, req, cancellationToken).ConfigureAwait(false);
+            reqId, MessageType.CreateFolder, MessageType.CreateFolderResponse, req, cancellationToken).ConfigureAwait(false);
         return res.Item;
     }
 
@@ -275,9 +342,10 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
         ThrowIfDisposed();
         EnsureLoggedIn();
 
-        var req = new Rename(Guid.NewGuid().ToString("D"), _session!, path, newName);
+        var reqId = Guid.NewGuid().ToString("D");
+        var req = new Rename(reqId, _session!, path, newName);
         var res = await SendAndReceiveAsync<Rename, RenameResponse>(
-            MessageType.Rename, MessageType.RenameResponse, req, cancellationToken).ConfigureAwait(false);
+            reqId, MessageType.Rename, MessageType.RenameResponse, req, cancellationToken).ConfigureAwait(false);
         return res.Item;
     }
 
@@ -287,9 +355,10 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
         ThrowIfDisposed();
         EnsureLoggedIn();
 
-        var req = new Move(Guid.NewGuid().ToString("D"), _session!, path, newParentPath);
+        var reqId = Guid.NewGuid().ToString("D");
+        var req = new Move(reqId, _session!, path, newParentPath);
         var res = await SendAndReceiveAsync<Move, MoveResponse>(
-            MessageType.Move, MessageType.MoveResponse, req, cancellationToken).ConfigureAwait(false);
+            reqId, MessageType.Move, MessageType.MoveResponse, req, cancellationToken).ConfigureAwait(false);
         return res.Item;
     }
 
@@ -299,9 +368,10 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
         ThrowIfDisposed();
         EnsureLoggedIn();
 
-        var req = new DeleteItem(Guid.NewGuid().ToString("D"), _session!, path);
+        var reqId = Guid.NewGuid().ToString("D");
+        var req = new DeleteItem(reqId, _session!, path);
         await SendAndReceiveAsync<DeleteItem, DeleteItemResponse>(
-            MessageType.DeleteItem, MessageType.DeleteItemResponse, req, cancellationToken).ConfigureAwait(false);
+            reqId, MessageType.DeleteItem, MessageType.DeleteItemResponse, req, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -310,9 +380,10 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
         ThrowIfDisposed();
         EnsureLoggedIn();
 
-        var req = new ClusterStatus(Guid.NewGuid().ToString("D"), _session!);
+        var reqId = Guid.NewGuid().ToString("D");
+        var req = new ClusterStatus(reqId, _session!);
         var res = await SendAndReceiveAsync<ClusterStatus, ClusterStatusResponse>(
-            MessageType.ClusterStatus, MessageType.ClusterStatusResponse, req, cancellationToken).ConfigureAwait(false);
+            reqId, MessageType.ClusterStatus, MessageType.ClusterStatusResponse, req, cancellationToken).ConfigureAwait(false);
         return res.DataServers;
     }
 
@@ -380,14 +451,14 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
     public Task<IReadOnlyList<AuditEntry>> ListAuditAsync(DateTime? from = null, DateTime? to = null, string? userId = null, int limit = 100, CancellationToken cancellationToken = default) =>
         throw new NotSupportedException("Admin operations are scheduled for M2-13.");
 
-    private async Task EnsureConnectedAsync(CancellationToken cancellationToken)
+    private async Task EnsureConnectedInternalAsync(CancellationToken cancellationToken)
     {
         if (IsConnected)
         {
             return;
         }
 
-        await ConnectAsync(cancellationToken).ConfigureAwait(false);
+        await ConnectInternalAsync(cancellationToken).ConfigureAwait(false);
     }
 
     private void EnsureLoggedIn()
@@ -414,6 +485,7 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
     }
 
     private async Task<TRes> SendAndReceiveAsync<TReq, TRes>(
+        string requestId,
         MessageType requestType,
         MessageType expectedResponseType,
         TReq request,
@@ -421,6 +493,8 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
         where TReq : class
         where TRes : class
     {
+        var currentSession = _session;
+
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         linkedCts.CancelAfter(_options.RequestTimeout);
         var token = linkedCts.Token;
@@ -428,17 +502,39 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
         await _streamLock.WaitAsync(token).ConfigureAwait(false);
         try
         {
-            await EnsureConnectedAsync(token).ConfigureAwait(false);
+            await EnsureConnectedInternalAsync(token).ConfigureAwait(false);
 
-            await FrameCodec.WriteMessageAsync(_stream!, requestType, request, token).ConfigureAwait(false);
+            try
+            {
+                await FrameCodec.WriteMessageAsync(_stream!, requestType, request, token).ConfigureAwait(false);
+            }
+            catch
+            {
+                DisconnectInternal();
+                throw;
+            }
 
-            var rawFrame = await FrameCodec.ReadRawFrameAsync(_stream!, token).ConfigureAwait(false)
-                ?? throw new DfsException(ErrorCode.Unavailable, "Connection closed by metadata server.");
+            RawFrame? rawFrame;
+            try
+            {
+                rawFrame = await FrameCodec.ReadRawFrameAsync(_stream!, token).ConfigureAwait(false);
+            }
+            catch
+            {
+                DisconnectInternal();
+                throw;
+            }
+
+            if (rawFrame is null)
+            {
+                DisconnectInternal();
+                throw new DfsException(ErrorCode.Unavailable, "Connection closed by metadata server (EOF).");
+            }
 
             if (rawFrame.Type == MessageType.Error)
             {
                 var error = FrameSerialization.DeserializeJson<ErrorResponse>(rawFrame.Payload);
-                if (error.Code == ErrorCode.Unauthorized)
+                if (error.Code == ErrorCode.Unauthorized && _session == currentSession)
                 {
                     ClearSession();
                 }
@@ -448,20 +544,42 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
 
             if (rawFrame.Type != expectedResponseType)
             {
+                DisconnectInternal();
                 throw new DfsException(
                     ErrorCode.BadRequest,
                     $"Expected response type {expectedResponseType} (0x{(byte)expectedResponseType:X2}) but received {rawFrame.Type} (0x{(byte)rawFrame.Type:X2}).");
             }
 
-            return FrameSerialization.DeserializeJson<TRes>(rawFrame.Payload);
+            var respRequestId = ExtractRequestId(rawFrame.Payload);
+            if (respRequestId is not null && respRequestId != requestId)
+            {
+                DisconnectInternal();
+                throw new DfsException(
+                    ErrorCode.BadRequest,
+                    $"RequestId mismatch: expected '{requestId}' but received '{respRequestId}'.");
+            }
+
+            try
+            {
+                return FrameSerialization.DeserializeJson<TRes>(rawFrame.Payload);
+            }
+            catch
+            {
+                DisconnectInternal();
+                throw;
+            }
         }
         catch (DfsException)
         {
             throw;
         }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException)
         {
             DisconnectInternal();
+            if (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
             throw new DfsException(ErrorCode.Unavailable, "Request to metadata server timed out.");
         }
         catch (Exception ex) when (ex is SocketException or IOException)
@@ -473,6 +591,32 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
         {
             _streamLock.Release();
         }
+    }
+
+    private static string? ExtractRequestId(ReadOnlySpan<byte> payload)
+    {
+        try
+        {
+            var reader = new Utf8JsonReader(payload);
+            using var doc = JsonDocument.ParseValue(ref reader);
+            if (doc.RootElement.ValueKind == JsonValueKind.Object)
+            {
+                if (doc.RootElement.TryGetProperty("requestId", out var prop) && prop.ValueKind == JsonValueKind.String)
+                {
+                    return prop.GetString();
+                }
+
+                if (doc.RootElement.TryGetProperty("RequestId", out prop) && prop.ValueKind == JsonValueKind.String)
+                {
+                    return prop.GetString();
+                }
+            }
+        }
+        catch (JsonException)
+        {
+        }
+
+        return null;
     }
 
     private void DisconnectInternal()
@@ -499,12 +643,17 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
         _connectedNodeId = null;
     }
 
-    private static (string Host, int Port) ParseEndpoint(string endpoint)
+    public static (string Host, int Port) ParseEndpoint(string endpoint)
     {
         if (string.IsNullOrWhiteSpace(endpoint))
         {
             throw new ArgumentException("Endpoint cannot be null or empty.", nameof(endpoint));
         }
+
+        endpoint = endpoint.Trim();
+
+        string host;
+        int port;
 
         if (endpoint.StartsWith('['))
         {
@@ -514,22 +663,38 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
                 throw new ArgumentException($"Invalid IPv6 endpoint format '{endpoint}'.", nameof(endpoint));
             }
 
-            var host = endpoint.Substring(1, closingBracket - 1);
-            if (!int.TryParse(endpoint.Substring(closingBracket + 2), out var p))
+            host = endpoint.Substring(1, closingBracket - 1).Trim();
+            if (string.IsNullOrEmpty(host))
             {
-                throw new ArgumentException($"Invalid port in endpoint '{endpoint}'.", nameof(endpoint));
+                throw new ArgumentException($"IPv6 host cannot be empty in endpoint '{endpoint}'.", nameof(endpoint));
             }
 
-            return (host, p);
+            if (!int.TryParse(endpoint.Substring(closingBracket + 2), out port) || port is < 1 or > 65535)
+            {
+                throw new ArgumentException($"Invalid port in endpoint '{endpoint}'. Port must be between 1 and 65535.", nameof(endpoint));
+            }
+
+            return (host, port);
         }
 
-        var parts = endpoint.Split(':');
-        if (parts.Length != 2 || !int.TryParse(parts[1], out var port))
+        var colonIdx = endpoint.LastIndexOf(':');
+        if (colonIdx <= 0 || colonIdx >= endpoint.Length - 1)
         {
             throw new ArgumentException($"Invalid endpoint format '{endpoint}'. Expected 'host:port'.", nameof(endpoint));
         }
 
-        return (parts[0], port);
+        host = endpoint.Substring(0, colonIdx).Trim();
+        if (string.IsNullOrWhiteSpace(host))
+        {
+            throw new ArgumentException($"Host cannot be empty in endpoint '{endpoint}'.", nameof(endpoint));
+        }
+
+        if (!int.TryParse(endpoint.Substring(colonIdx + 1), out port) || port is < 1 or > 65535)
+        {
+            throw new ArgumentException($"Invalid port in endpoint '{endpoint}'. Port must be between 1 and 65535.", nameof(endpoint));
+        }
+
+        return (host, port);
     }
 
     private void ThrowIfDisposed()
@@ -569,6 +734,13 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
 
     protected virtual async ValueTask DisposeAsyncCore()
     {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+
         if (_stream is not null)
         {
             try

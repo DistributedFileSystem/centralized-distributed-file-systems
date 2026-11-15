@@ -319,6 +319,61 @@ public class DfsClientTests : IAsyncDisposable
         await Assert.ThrowsAsync<NotSupportedException>(() => client.ListAuditAsync());
     }
 
+    [Fact]
+    public void ParseEndpoint_InvalidFormats_ThrowArgumentException()
+    {
+        Assert.Throws<ArgumentException>(() => DfsClient.ParseEndpoint(""));
+        Assert.Throws<ArgumentException>(() => DfsClient.ParseEndpoint("   "));
+        Assert.Throws<ArgumentException>(() => DfsClient.ParseEndpoint(":7000"));
+        Assert.Throws<ArgumentException>(() => DfsClient.ParseEndpoint("[]:7000"));
+        Assert.Throws<ArgumentException>(() => DfsClient.ParseEndpoint("host:0"));
+        Assert.Throws<ArgumentException>(() => DfsClient.ParseEndpoint("host:99999"));
+        Assert.Throws<ArgumentException>(() => DfsClient.ParseEndpoint("host:-1"));
+        Assert.Throws<ArgumentException>(() => DfsClient.ParseEndpoint("host"));
+        Assert.Throws<ArgumentException>(() => DfsClient.ParseEndpoint("[::1]"));
+
+        var (host, port) = DfsClient.ParseEndpoint("127.0.0.1:7000");
+        Assert.Equal("127.0.0.1", host);
+        Assert.Equal(7000, port);
+
+        var (v6Host, v6Port) = DfsClient.ParseEndpoint("[::1]:8080");
+        Assert.Equal("::1", v6Host);
+        Assert.Equal(8080, v6Port);
+    }
+
+    [Fact]
+    public async Task Failover_WithMalformedAndDeadEndpoints_StillReachesValidEndpoint()
+    {
+        var (_, server) = StartFakeCluster();
+
+        // Endpoints list contains malformed, unreachable port, and then valid server
+        var client = Register(new DfsClient(new[] { ":7000", "127.0.0.1:65534", server.Address }));
+        await client.ConnectAsync();
+        Assert.True(client.IsConnected);
+        Assert.Equal(server.Address, client.ConnectedEndpoint);
+    }
+
+    [Fact]
+    public async Task CallerCancellation_PropagatesOperationCanceledException()
+    {
+        var (_, server) = StartFakeCluster();
+        var client = Register(new DfsClient(server.Address));
+
+        using var cts = new CancellationTokenSource();
+        cts.Cancel(); // Already cancelled
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => client.ConnectAsync(cts.Token));
+    }
+
+    [Fact]
+    public async Task DisposeAsync_IsIdempotent()
+    {
+        var client = new DfsClient("127.0.0.1:7000");
+        await client.DisposeAsync();
+        await client.DisposeAsync(); // Second call must not throw ObjectDisposedException on semaphore
+        client.Dispose();
+    }
+
     // -------------------------------------------------------------
     // Helper Mock Server
     // -------------------------------------------------------------

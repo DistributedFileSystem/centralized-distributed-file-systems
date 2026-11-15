@@ -22,6 +22,11 @@ internal sealed class OpLog
     {
         ["CreateFolder"] = typeof(CreateFolder),
         ["CreateUser"] = typeof(CreateUser),
+        ["SetUserDisabled"] = typeof(SetUserDisabled),
+        ["CreateRole"] = typeof(CreateRole),
+        ["SetGrant"] = typeof(SetGrant),
+        ["CreateSession"] = typeof(CreateSession),
+        ["DeleteSession"] = typeof(DeleteSession),
     };
 
     private readonly string _path;

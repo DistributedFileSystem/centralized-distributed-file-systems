@@ -128,7 +128,7 @@
                                FontSize="12"
                                FontWeight="SemiBold"
                                Foreground="#1E293B" />
-                    <TextBox Text="{Binding Endpoint, Mode=TwoWay, TargetNullValue=''}"
+                    <TextBox Text="{Binding Endpoint}"
                              PlaceholderText="127.0.0.1:7000"
                              Height="36"
                              CornerRadius="6"
@@ -146,8 +146,8 @@
 
                 <!-- Submit Button -->
                 <Button Content="ĐĂNG NHẬP"
-                        Command="{Binding LoginCommand}"
                         HotKey="Enter"
+                        Command="{Binding LoginCommand}"
                         IsEnabled="{Binding !IsBusy}"
                         Height="40"
                         Background="#0284C7"

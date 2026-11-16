@@ -21,7 +21,7 @@ public sealed class LoginViewModel : ViewModelBase
 
     private string? _username = "demo";
     private string? _password = "demo";
-    private string? _endpoint = "127.0.0.1:7000";
+    private string _endpoint = "127.0.0.1:7000";
     private bool _rememberMe = true;
     private bool _isPasswordRevealed;
     private string _errorMessage = "";
@@ -40,7 +40,7 @@ public sealed class LoginViewModel : ViewModelBase
         set => SetProperty(ref _password, value);
     }
 
-    public string? Endpoint
+    public string Endpoint
     {
         get => _endpoint;
         set => SetProperty(ref _endpoint, value);
@@ -209,7 +209,7 @@ public sealed class LoginViewModel : ViewModelBase
             // Độ trễ ngắn để tester dễ quan sát Loading indicator (28-LOGIN-08)
             await Task.Delay(250);
 
-            var response = await _client.LoginAsync(Username!.Trim(), Password!);
+            var response = await _client.LoginAsync(Username.Trim(), Password);
             SaveLoginState();
             _onLoginSuccess(response, targetMode);
         }

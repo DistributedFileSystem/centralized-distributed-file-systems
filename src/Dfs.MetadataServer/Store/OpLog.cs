@@ -5,6 +5,9 @@ using System.Text.Json.Nodes;
 using Dfs.Shared.Commands;
 using CreateFolder = Dfs.Shared.Commands.CreateFolder;
 using CreateUser = Dfs.Shared.Commands.CreateUser;
+using DeleteItem = Dfs.Shared.Commands.DeleteItem;
+using MoveItem = Dfs.Shared.Commands.MoveItem;
+using RenameItem = Dfs.Shared.Commands.RenameItem;
 
 namespace Dfs.MetadataServer.Store;
 
@@ -21,7 +24,15 @@ internal sealed class OpLog
     private static readonly Dictionary<string, Type> TypesByName = new()
     {
         ["CreateFolder"] = typeof(CreateFolder),
+        ["RenameItem"] = typeof(RenameItem),
+        ["MoveItem"] = typeof(MoveItem),
+        ["DeleteItem"] = typeof(DeleteItem),
         ["CreateUser"] = typeof(CreateUser),
+        ["SetUserDisabled"] = typeof(SetUserDisabled),
+        ["CreateRole"] = typeof(CreateRole),
+        ["SetGrant"] = typeof(SetGrant),
+        ["CreateSession"] = typeof(CreateSession),
+        ["DeleteSession"] = typeof(DeleteSession),
     };
 
     private readonly string _path;

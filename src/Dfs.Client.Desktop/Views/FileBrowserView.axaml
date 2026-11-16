@@ -4,126 +4,461 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="using:Dfs.Client.Desktop.ViewModels"
              xmlns:m="using:Dfs.Client.Desktop.Models"
-             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="600"
+             mc:Ignorable="d" d:DesignWidth="950" d:DesignHeight="600"
              x:Class="Dfs.Client.Desktop.Views.FileBrowserView"
              x:DataType="vm:FileBrowserViewModel">
 
-    <Grid RowDefinitions="Auto,*,Auto" Background="#FFFFFF">
-        <!-- Toolbar -->
-        <Border Grid.Row="0"
-                Background="#F8F9FA"
-                BorderBrush="#DEE2E6"
-                BorderThickness="0,0,0,1"
-                Padding="16,10">
-            <Grid ColumnDefinitions="Auto,*,Auto" VerticalAlignment="Center">
-                <Button Grid.Column="0"
-                        Content="⬆ Lên một cấp"
-                        Command="{Binding NavigateUpCommand}"
-                        Padding="12,6"
-                        Margin="0,0,12,0"
-                        CornerRadius="4"
-                        Background="#FFFFFF"
-                        BorderBrush="#DEE2E6"
-                        BorderThickness="1" />
-
-                <!-- Current Path Box -->
-                <TextBox Grid.Column="1"
-                         Text="{Binding CurrentPath, Mode=TwoWay}"
-                         Height="34"
-                         VerticalContentAlignment="Center"
-                         CornerRadius="4"
-                         BorderBrush="#DEE2E6"
-                         FontFamily="Consolas, Cascadia Mono, monospace"
-                         FontSize="13" />
-
-                <Button Grid.Column="2"
-                        Content="🔄 Làm mới"
-                        Command="{Binding RefreshCommand}"
-                        Padding="12,6"
-                        Margin="12,0,0,0"
-                        CornerRadius="4"
-                        Background="#0066CC"
-                        Foreground="#FFFFFF"
-                        FontWeight="SemiBold" />
-            </Grid>
-        </Border>
-
-        <!-- Main Content Area: File List -->
-        <Grid Grid.Row="1" RowDefinitions="Auto,*">
-            <!-- Table Header -->
-            <Border Grid.Row="0"
-                    Background="#F1F3F5"
+    <Grid>
+        <!-- Main Layout: 2 Columns (Tree Sidebar + Content Area) -->
+        <Grid ColumnDefinitions="240,*">
+            <!-- Left: Directory Tree Sidebar -->
+            <Border Grid.Column="0"
+                    Background="#F8F9FA"
                     BorderBrush="#DEE2E6"
-                    BorderThickness="0,0,0,1"
-                    Padding="16,8">
-                <Grid ColumnDefinitions="3*,1*,1*,1*,2*">
-                    <TextBlock Grid.Column="0" Text="Tên tệp / thư mục" FontWeight="SemiBold" FontSize="12" Foreground="#495057" />
-                    <TextBlock Grid.Column="1" Text="Kích thước" FontWeight="SemiBold" FontSize="12" Foreground="#495057" />
-                    <TextBlock Grid.Column="2" Text="Phiên bản" FontWeight="SemiBold" FontSize="12" Foreground="#495057" />
-                    <TextBlock Grid.Column="3" Text="Chủ sở hữu" FontWeight="SemiBold" FontSize="12" Foreground="#495057" />
-                    <TextBlock Grid.Column="4" Text="Sửa đổi lần cuối" FontWeight="SemiBold" FontSize="12" Foreground="#495057" />
+                    BorderThickness="0,0,1,0">
+                <Grid RowDefinitions="Auto,*">
+                    <!-- Tree Header -->
+                    <Border Grid.Row="0"
+                            Padding="14,12"
+                            BorderBrush="#DEE2E6"
+                            BorderThickness="0,0,0,1"
+                            Background="#F1F3F5">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBlock Text="🌳" FontSize="14" VerticalAlignment="Center" />
+                            <TextBlock Text="CÂY THƯ MỤC"
+                                       FontWeight="Bold"
+                                       FontSize="12"
+                                       Foreground="#495057"
+                                       VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Directory TreeView -->
+                    <TreeView Grid.Row="1"
+                              ItemsSource="{Binding RootNodes}"
+                              Padding="4"
+                              Background="Transparent">
+                        <TreeView.ItemTemplate>
+                            <TreeDataTemplate ItemsSource="{Binding Children}" x:DataType="m:UiDirectoryNode">
+                                <Button Background="Transparent"
+                                        BorderThickness="0"
+                                        Padding="6,4"
+                                        HorizontalAlignment="Stretch"
+                                        HorizontalContentAlignment="Left"
+                                        Command="{Binding $parent[UserControl].((vm:FileBrowserViewModel)DataContext).SelectTreeNodeCommand}"
+                                        CommandParameter="{Binding}">
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <TextBlock Text="📁" FontSize="13" VerticalAlignment="Center" />
+                                        <TextBlock Text="{Binding Name}"
+                                                   FontSize="12"
+                                                   FontWeight="Medium"
+                                                   Foreground="#212529"
+                                                   VerticalAlignment="Center" />
+                                    </StackPanel>
+                                </Button>
+                            </TreeDataTemplate>
+                        </TreeView.ItemTemplate>
+                    </TreeView>
                 </Grid>
             </Border>
 
-            <!-- File Items List -->
-            <ListBox Grid.Row="1"
-                     ItemsSource="{Binding Items}"
-                     SelectedItem="{Binding SelectedItem}"
-                     Background="Transparent">
-                <ListBox.ItemTemplate>
-                    <DataTemplate x:DataType="m:UiFileItem">
-                        <Grid ColumnDefinitions="3*,1*,1*,1*,2*"
-                              VerticalAlignment="Center"
-                              Margin="0,2">
-                            <!-- Name & Icon -->
-                            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8">
-                                <TextBlock Text="{Binding IconGlyph}" FontSize="16" VerticalAlignment="Center" />
-                                <TextBlock Text="{Binding Name}"
-                                           FontWeight="{Binding IsFolder, Converter={x:Null}}"
-                                           VerticalAlignment="Center"
-                                           TextTrimming="CharacterEllipsis" />
-                            </StackPanel>
+            <!-- Right: Main Work Area -->
+            <Grid Grid.Column="1" RowDefinitions="Auto,Auto,*,Auto" Background="#FFFFFF">
+                <!-- Toolbar -->
+                <Border Grid.Row="0"
+                        Background="#F8F9FA"
+                        BorderBrush="#DEE2E6"
+                        BorderThickness="0,0,0,1"
+                        Padding="14,10">
+                    <Grid ColumnDefinitions="Auto,*,Auto" VerticalAlignment="Center">
+                        <!-- Navigation Buttons -->
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6" Margin="0,0,10,0">
+                            <Button Content="⬆ Lên một cấp"
+                                    Command="{Binding NavigateUpCommand}"
+                                    Padding="10,6"
+                                    CornerRadius="4"
+                                    Background="#FFFFFF"
+                                    BorderBrush="#CED4DA"
+                                    BorderThickness="1"
+                                    FontSize="12" />
+                        </StackPanel>
 
-                            <!-- Size -->
-                            <TextBlock Grid.Column="1" Text="{Binding SizeString}"
-                                       VerticalAlignment="Center"
-                                       Foreground="#6C757D"
-                                       FontSize="12" />
+                        <!-- Current Path Input -->
+                        <TextBox Grid.Column="1"
+                                 Text="{Binding CurrentPath, Mode=TwoWay}"
+                                 Height="34"
+                                 VerticalContentAlignment="Center"
+                                 CornerRadius="4"
+                                 BorderBrush="#CED4DA"
+                                 FontFamily="Consolas, Cascadia Mono, monospace"
+                                 FontSize="12" />
 
-                            <!-- Version -->
-                            <TextBlock Grid.Column="2" Text="{Binding VersionString}"
-                                       VerticalAlignment="Center"
-                                       Foreground="#0066CC"
-                                       FontWeight="SemiBold"
-                                       FontSize="12" />
+                        <!-- Action Buttons -->
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" Margin="10,0,0,0">
+                            <Button Content="📁+ Thư mục mới"
+                                    Command="{Binding OpenCreateFolderDialogCommand}"
+                                    Padding="10,6"
+                                    CornerRadius="4"
+                                    Background="#FFFFFF"
+                                    BorderBrush="#CED4DA"
+                                    BorderThickness="1"
+                                    FontSize="12" />
 
-                            <!-- Owner -->
-                            <TextBlock Grid.Column="3" Text="{Binding OwnerString}"
-                                       VerticalAlignment="Center"
-                                       Foreground="#495057"
-                                       FontSize="12" />
+                            <Button Content="✏️ Đổi tên"
+                                    Command="{Binding OpenRenameDialogCommand}"
+                                    IsEnabled="{Binding CanDeleteOrRename}"
+                                    Padding="10,6"
+                                    CornerRadius="4"
+                                    Background="#FFFFFF"
+                                    BorderBrush="#CED4DA"
+                                    BorderThickness="1"
+                                    FontSize="12" />
 
-                            <!-- Modified -->
-                            <TextBlock Grid.Column="4" Text="{Binding ModifiedString}"
-                                       VerticalAlignment="Center"
-                                       Foreground="#6C757D"
-                                       FontSize="12" />
+                            <Button Content="✂️ Di chuyển"
+                                    Command="{Binding OpenMoveDialogCommand}"
+                                    IsEnabled="{Binding CanDeleteOrRename}"
+                                    Padding="10,6"
+                                    CornerRadius="4"
+                                    Background="#FFFFFF"
+                                    BorderBrush="#CED4DA"
+                                    BorderThickness="1"
+                                    FontSize="12" />
+
+                            <Button Content="🗑️ Xóa"
+                                    Command="{Binding OpenDeleteDialogCommand}"
+                                    IsEnabled="{Binding CanDeleteOrRename}"
+                                    Padding="10,6"
+                                    CornerRadius="4"
+                                    Background="#FFFFFF"
+                                    BorderBrush="#CED4DA"
+                                    BorderThickness="1"
+                                    Foreground="#DC3545"
+                                    FontSize="12" />
+
+                            <Button Content="🔄 Làm mới"
+                                    Command="{Binding RefreshCommand}"
+                                    Padding="10,6"
+                                    CornerRadius="4"
+                                    Background="#0066CC"
+                                    Foreground="#FFFFFF"
+                                    FontWeight="SemiBold"
+                                    FontSize="12" />
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <!-- Notification Banner -->
+                <Border Grid.Row="1"
+                        IsVisible="{Binding HasNotification}"
+                        Background="{Binding NotificationIsError, Converter={x:Null}}"
+                        BorderThickness="0,0,0,1"
+                        Padding="14,8">
+                    <Border.Styles>
+                        <Style Selector="Border">
+                            <Setter Property="Background" Value="#D4EDDA" />
+                            <Setter Property="BorderBrush" Value="#C3E6CB" />
+                        </Style>
+                    </Border.Styles>
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Grid.Column="0"
+                                   Text="{Binding NotificationMessage}"
+                                   Foreground="{Binding NotificationIsError, Converter={x:Null}}"
+                                   FontSize="12"
+                                   FontWeight="Medium"
+                                   VerticalAlignment="Center" />
+                        <Button Grid.Column="1"
+                                Content="✖"
+                                Command="{Binding DismissNotificationCommand}"
+                                Background="Transparent"
+                                BorderThickness="0"
+                                Padding="6,2"
+                                FontSize="11" />
+                    </Grid>
+                </Border>
+
+                <!-- File Items Data Table -->
+                <Grid Grid.Row="2" RowDefinitions="Auto,*">
+                    <!-- Column Header -->
+                    <Border Grid.Row="0"
+                            Background="#F1F3F5"
+                            BorderBrush="#DEE2E6"
+                            BorderThickness="0,0,0,1"
+                            Padding="14,8">
+                        <Grid ColumnDefinitions="3*,1*,1*,1.2*,1.8*">
+                            <TextBlock Grid.Column="0" Text="Tên tệp / thư mục" FontWeight="SemiBold" FontSize="12" Foreground="#495057" />
+                            <TextBlock Grid.Column="1" Text="Kích thước" FontWeight="SemiBold" FontSize="12" Foreground="#495057" />
+                            <TextBlock Grid.Column="2" Text="Phiên bản" FontWeight="SemiBold" FontSize="12" Foreground="#495057" />
+                            <TextBlock Grid.Column="3" Text="Chủ sở hữu" FontWeight="SemiBold" FontSize="12" Foreground="#495057" />
+                            <TextBlock Grid.Column="4" Text="Sửa đổi lần cuối" FontWeight="SemiBold" FontSize="12" Foreground="#495057" />
                         </Grid>
-                    </DataTemplate>
-                </ListBox.ItemTemplate>
-            </ListBox>
+                    </Border>
+
+                    <!-- Items List -->
+                    <ListBox Grid.Row="1"
+                             ItemsSource="{Binding Items}"
+                             SelectedItem="{Binding SelectedItem}"
+                             Background="Transparent">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="m:UiFileItem">
+                                <Grid ColumnDefinitions="3*,1*,1*,1.2*,1.8*"
+                                      VerticalAlignment="Center"
+                                      Margin="0,2">
+                                    <!-- Context Menu on Right Click -->
+                                    <Grid.ContextMenu>
+                                        <ContextMenu>
+                                            <MenuItem Header="📁 Mở thư mục"
+                                                      IsVisible="{Binding IsFolder}"
+                                                      Command="{Binding $parent[UserControl].((vm:FileBrowserViewModel)DataContext).OpenItemCommand}"
+                                                      CommandParameter="{Binding}" />
+                                            <MenuItem Header="✏️ Đổi tên"
+                                                      Command="{Binding $parent[UserControl].((vm:FileBrowserViewModel)DataContext).OpenRenameDialogCommand}" />
+                                            <MenuItem Header="✂️ Di chuyển..."
+                                                      Command="{Binding $parent[UserControl].((vm:FileBrowserViewModel)DataContext).OpenMoveDialogCommand}" />
+                                            <Separator />
+                                            <MenuItem Header="🗑️ Xóa"
+                                                      Foreground="#DC3545"
+                                                      Command="{Binding $parent[UserControl].((vm:FileBrowserViewModel)DataContext).OpenDeleteDialogCommand}" />
+                                        </ContextMenu>
+                                    </Grid.ContextMenu>
+
+                                    <!-- Name & Icon -->
+                                    <Button Grid.Column="0"
+                                            Background="Transparent"
+                                            BorderThickness="0"
+                                            Padding="0"
+                                            HorizontalAlignment="Stretch"
+                                            HorizontalContentAlignment="Left"
+                                            Command="{Binding $parent[UserControl].((vm:FileBrowserViewModel)DataContext).OpenItemCommand}"
+                                            CommandParameter="{Binding}">
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <TextBlock Text="{Binding IconGlyph}" FontSize="16" VerticalAlignment="Center" />
+                                            <TextBlock Text="{Binding Name}"
+                                                       FontWeight="{Binding IsFolder, Converter={x:Null}}"
+                                                       Foreground="{Binding IsFolder, Converter={x:Null}}"
+                                                       VerticalAlignment="Center"
+                                                       TextTrimming="CharacterEllipsis" />
+                                        </StackPanel>
+                                    </Button>
+
+                                    <!-- Size -->
+                                    <TextBlock Grid.Column="1" Text="{Binding SizeString}"
+                                               VerticalAlignment="Center"
+                                               Foreground="#6C757D"
+                                               FontSize="12" />
+
+                                    <!-- Version -->
+                                    <TextBlock Grid.Column="2" Text="{Binding VersionString}"
+                                               VerticalAlignment="Center"
+                                               Foreground="#0066CC"
+                                               FontWeight="SemiBold"
+                                               FontSize="12" />
+
+                                    <!-- Owner -->
+                                    <TextBlock Grid.Column="3" Text="{Binding OwnerString}"
+                                               VerticalAlignment="Center"
+                                               Foreground="#495057"
+                                               FontSize="12" />
+
+                                    <!-- Modified -->
+                                    <TextBlock Grid.Column="4" Text="{Binding ModifiedString}"
+                                               VerticalAlignment="Center"
+                                               Foreground="#6C757D"
+                                               FontSize="12" />
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
+
+                <!-- Status Bar -->
+                <Border Grid.Row="3"
+                        Background="#F8F9FA"
+                        BorderBrush="#DEE2E6"
+                        BorderThickness="0,1,0,0"
+                        Padding="14,6">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Grid.Column="0"
+                                   Text="{Binding StatusText}"
+                                   FontSize="12"
+                                   Foreground="#6C757D"
+                                   VerticalAlignment="Center" />
+                        <ProgressBar Grid.Column="1"
+                                     IsIndeterminate="True"
+                                     Width="80" Height="4"
+                                     IsVisible="{Binding IsLoading}"
+                                     VerticalAlignment="Center" />
+                    </Grid>
+                </Border>
+            </Grid>
         </Grid>
 
-        <!-- Status Bar -->
-        <Border Grid.Row="2"
-                Background="#F8F9FA"
-                BorderBrush="#DEE2E6"
-                BorderThickness="0,1,0,0"
-                Padding="16,6">
-            <TextBlock Text="{Binding StatusText}"
-                       FontSize="12"
-                       Foreground="#6C757D" />
+        <!-- MODAL OVERLAY: Create Folder Dialog -->
+        <Border Background="#80000000"
+                IsVisible="{Binding IsCreateFolderDialogOpen}"
+                HorizontalAlignment="Stretch"
+                VerticalAlignment="Stretch">
+            <Border Background="#FFFFFF"
+                    CornerRadius="8"
+                    Width="380"
+                    Padding="24"
+                    BoxShadow="0 8 24 0 #40000000"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center">
+                <StackPanel Spacing="14">
+                    <TextBlock Text="📁 Tạo thư mục mới"
+                               FontSize="16"
+                               FontWeight="Bold"
+                               Foreground="#212529" />
+                    <TextBlock Text="Nhập tên cho thư mục mới cần tạo:"
+                               FontSize="12"
+                               Foreground="#6C757D" />
+                    <TextBox Text="{Binding NewFolderName, Mode=TwoWay}"
+                             PlaceholderText="Ví dụ: docs, reports, source"
+                             Height="34"
+                             CornerRadius="4" />
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,6,0,0">
+                        <Button Content="Hủy"
+                                Command="{Binding CancelCreateFolderCommand}"
+                                Padding="14,6"
+                                Background="#F1F3F5"
+                                CornerRadius="4" />
+                        <Button Content="Tạo mới"
+                                Command="{Binding ConfirmCreateFolderCommand}"
+                                Padding="14,6"
+                                Background="#0066CC"
+                                Foreground="#FFFFFF"
+                                FontWeight="SemiBold"
+                                CornerRadius="4" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Border>
+
+        <!-- MODAL OVERLAY: Rename Dialog -->
+        <Border Background="#80000000"
+                IsVisible="{Binding IsRenameDialogOpen}"
+                HorizontalAlignment="Stretch"
+                VerticalAlignment="Stretch">
+            <Border Background="#FFFFFF"
+                    CornerRadius="8"
+                    Width="380"
+                    Padding="24"
+                    BoxShadow="0 8 24 0 #40000000"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center">
+                <StackPanel Spacing="14">
+                    <TextBlock Text="✏️ Đổi tên tệp / thư mục"
+                               FontSize="16"
+                               FontWeight="Bold"
+                               Foreground="#212529" />
+                    <TextBlock Text="Nhập tên mới:"
+                               FontSize="12"
+                               Foreground="#6C757D" />
+                    <TextBox Text="{Binding RenameNewName, Mode=TwoWay}"
+                             Height="34"
+                             CornerRadius="4" />
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,6,0,0">
+                        <Button Content="Hủy"
+                                Command="{Binding CancelRenameCommand}"
+                                Padding="14,6"
+                                Background="#F1F3F5"
+                                CornerRadius="4" />
+                        <Button Content="Lưu thay đổi"
+                                Command="{Binding ConfirmRenameCommand}"
+                                Padding="14,6"
+                                Background="#0066CC"
+                                Foreground="#FFFFFF"
+                                FontWeight="SemiBold"
+                                CornerRadius="4" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Border>
+
+        <!-- MODAL OVERLAY: Delete Confirmation Dialog -->
+        <Border Background="#80000000"
+                IsVisible="{Binding IsDeleteDialogOpen}"
+                HorizontalAlignment="Stretch"
+                VerticalAlignment="Stretch">
+            <Border Background="#FFFFFF"
+                    CornerRadius="8"
+                    Width="400"
+                    Padding="24"
+                    BoxShadow="0 8 24 0 #40000000"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center">
+                <StackPanel Spacing="14">
+                    <TextBlock Text="🗑️ Xác nhận xóa vĩnh viễn"
+                               FontSize="16"
+                               FontWeight="Bold"
+                               Foreground="#DC3545" />
+                    <TextBlock Text="{Binding DeletePromptMessage}"
+                               FontSize="13"
+                               TextWrapping="Wrap"
+                               Foreground="#212529" />
+                    <TextBlock Text="Hành động này không thể hoàn tác sau khi thực hiện!"
+                               FontSize="11"
+                               Foreground="#6C757D"
+                               FontStyle="Italic" />
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,6,0,0">
+                        <Button Content="Không xóa"
+                                Command="{Binding CancelDeleteCommand}"
+                                Padding="14,6"
+                                Background="#F1F3F5"
+                                CornerRadius="4" />
+                        <Button Content="Đồng ý xóa"
+                                Command="{Binding ConfirmDeleteCommand}"
+                                Padding="14,6"
+                                Background="#DC3545"
+                                Foreground="#FFFFFF"
+                                FontWeight="SemiBold"
+                                CornerRadius="4" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Border>
+
+        <!-- MODAL OVERLAY: Move Dialog -->
+        <Border Background="#80000000"
+                IsVisible="{Binding IsMoveDialogOpen}"
+                HorizontalAlignment="Stretch"
+                VerticalAlignment="Stretch">
+            <Border Background="#FFFFFF"
+                    CornerRadius="8"
+                    Width="420"
+                    Padding="24"
+                    BoxShadow="0 8 24 0 #40000000"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center">
+                <StackPanel Spacing="14">
+                    <TextBlock Text="✂️ Di chuyển mục đã chọn"
+                               FontSize="16"
+                               FontWeight="Bold"
+                               Foreground="#212529" />
+                    <TextBlock Text="Nhập đường dẫn thư mục đích đến:"
+                               FontSize="12"
+                               Foreground="#6C757D" />
+                    <TextBox Text="{Binding MoveTargetPath, Mode=TwoWay}"
+                             PlaceholderText="Ví dụ: /projects/dfs hoặc /shared"
+                             Height="34"
+                             CornerRadius="4"
+                             FontFamily="Consolas, Cascadia Mono, monospace" />
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,6,0,0">
+                        <Button Content="Hủy"
+                                Command="{Binding CancelMoveCommand}"
+                                Padding="14,6"
+                                Background="#F1F3F5"
+                                CornerRadius="4" />
+                        <Button Content="Di chuyển"
+                                Command="{Binding ConfirmMoveCommand}"
+                                Padding="14,6"
+                                Background="#0066CC"
+                                Foreground="#FFFFFF"
+                                FontWeight="SemiBold"
+                                CornerRadius="4" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
         </Border>
     </Grid>
 </UserControl>
-

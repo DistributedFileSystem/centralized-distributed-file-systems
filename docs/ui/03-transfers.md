@@ -60,18 +60,23 @@ Mỗi tác vụ truyền tải được hiển thị trong một khung dạng Th
    - `[DOWN]` Mũi tên xanh dương chỉ xuống: Tải xuống máy cục bộ.
 2. **Thông tin định danh:**
    - Tên tệp tin và đường dẫn đầy đủ trên namespace.
-   - Dung lượng tổng và tổng số khối dữ liệu (`chunks count = ceil(size / 4MB)`).
+   - Dung lượng tổng và tổng số khối dữ liệu (`chunks count = ceil(size / 4MB)` với kích thước chunk chuẩn `ProtocolConstants.DefaultChunkSize = 4MB`).
 3. **Thanh tiến trình chính (Main ProgressBar):**
    - Thể hiện % dung lượng thực tế đã truyền qua socket TCP.
-   - Màu xanh dương khi đang truyền, màu xanh lá khi hoàn tất, màu đỏ khi gặp lỗi.
+   - Màu xanh dương khi đang truyền, màu xanh lá khi hoàn tất, màu đỏ khi gặp lỗi (`ErrorCode.Unavailable`).
 4. **Thông số hiệu năng thời gian thực:**
    - Tốc độ truyền tải tức thời (`MB/s`).
    - Thời gian ước tính còn lại (ETA).
 5. **Vùng phân rã khối dữ liệu (Chunk Breakdown - Accordion Expander):**
-   - Cho phép người dùng bấm mở rộng để xem chi tiết từng chunk 4 MB đang được gửi tới / đọc từ Data Server nào (IP LAN và cổng của máy bạn trong nhóm).
+   - Cho phép người dùng bấm mở rộng để xem chi tiết từng chunk 4 MB đang được gửi tới / đọc từ Data Server nào:
+     - Môi trường Docker Compose (1 máy): `127.0.0.1:7001` đến `127.0.0.1:7005` (`ds-1` .. `ds-5`).
+     - Môi trường Mạng LAN (5 laptop): `192.168.10.11:7001` đến `192.168.10.15:7001`.
    - Hiển thị kết quả kiểm tra mã băm SHA-256 độc lập của từng chunk sau khi ghi xong.
 6. **Nút hủy tác vụ (Cancel Button):**
-   - Cho phép người dùng hủy ngang tác vụ đang chạy bất kỳ lúc nào.
+   - Cho phép người dùng hủy ngang tác vụ đang chạy bất kỳ lúc nào thông qua `CancellationTokenSource`.
+7. **Trạng thái rỗng (Empty State):**
+   - Khi hàng đợi chưa có tác vụ truyền tải nào hoặc sau khi bấm "Xóa danh sách hoàn tất", hiển thị banner thông báo thân thiện: *"Chưa có tác vụ truyền tải nào. Bạn có thể kéo thả tệp tin hoặc bấm Tải lên / Tải xuống từ Trình duyệt tệp tin."*
+   - Toàn bộ các nút mock test phục vụ kiểm thử nhanh trước đây (`Simulate Unavailable`, `Seed Sample`) đã được loại bỏ khỏi giao diện chính thức.
 
 ---
 

@@ -22,31 +22,31 @@ Cung cấp cái nhìn trực quan thời gian thực về hạ tầng lưu trữ
 |                                                                                                         |
 |  +------------------------+  +------------------------+  +------------------------+  +---------------+  |
 |  | DATA SERVERS           |  | DUNG LƯỢNG LƯU TRỮ     |  | TỔNG SỐ KHỐI (CHUNKS)  |  | METADATA NODE |  |
-|  | 4 / 5 Healthy          |  | 380 GB trống / 500 GB  |  | 32,450 chunks          |  | Laptop 1 (Tân)|  |
-|  | [v] 4 Online  [x] 1 Dead| | [====          ] 24%    |  | (1 bản sao / chunk)    |  | OpLog: seq 142|  |
+|  | 4 / 5 Alive            |  | 380 GB trống / 500 GB  |  | 32,450 chunks          |  | m1 (Tân)      |  |
+|  | [v] 4 Alive   [x] 1 Dead| | [====          ] 24%    |  | (1 bản sao / chunk)    |  | OpLog: seq 142|  |
 |  +------------------------+  +------------------------+  +------------------------+  +---------------+  |
 |                                                                                                         |
 |---------------------------------------------------------------------------------------------------------|
 |                                                                                                         |
-|  === CHI TIẾT 5 LAPTOP DATA SERVERS TRONG MẠNG LAN ===                                                  |
+|  === CHI TIẾT 5 DATA SERVERS (LAN / DOCKER COMPOSE) ===                                                  |
 |                                                                                                         |
 |  [O] Quét lại nhịp tim  |  Tự động làm mới: [v] Bật (3s)  |  Cảnh báo: Phát hiện 1 máy mất kết nối!     |
 |                                                                                                         |
 |  +---------------------------------------------------------------------------------------------------+  |
-|  | Node ID | Laptop / Thành viên | Địa chỉ LAN (IP:Port)  | Trạng thái  | Dung lượng trống | Số chunk | Nhịp tim |  |
+|  | Node ID | Laptop / Thành viên | Địa chỉ (IP:Port)      | Trạng thái  | Dung lượng trống | Số chunk | Nhịp tim |  |
 |  +---------+---------------------+------------------------+-------------+------------------+----------+----------+  |
-|  | ds-1    | Laptop 1 (Tân)      | 192.168.10.11:7001     | [v] Healthy | 78.5 GB / 100 GB | 6,420    | 1s trước |  |
-|  | ds-2    | Laptop 2 (Nhất)     | 192.168.10.12:7001     | [v] Healthy | 72.0 GB / 100 GB | 6,850    | 2s trước |  |
-|  | ds-3    | Laptop 3 (Cường)    | 192.168.10.13:7001     | [v] Healthy | 81.2 GB / 100 GB | 6,100    | 1s trước |  |
-|  | ds-4    | Laptop 4 (Nguyên)   | 192.168.10.14:7001     | [v] Healthy | 76.4 GB / 100 GB | 6,580    | 1s trước |  |
-|  | ds-5    | Laptop 5 (Quân)     | 192.168.10.15:7001     | [x] DEAD    | -- (Mất tín hiệu)| 6,500    | 25s trước|  |
+|  | ds-1    | Laptop 1 (Tân)      | 127.0.0.1:7001         | [v] ALIVE   | 78.5 GB / 100 GB | 6,420    | 1s trước |  |
+|  | ds-2    | Laptop 2 (Nhất)     | 127.0.0.1:7002         | [v] ALIVE   | 72.0 GB / 100 GB | 6,850    | 2s trước |  |
+|  | ds-3    | Laptop 3 (Cường)    | 127.0.0.1:7003         | [v] ALIVE   | 81.2 GB / 100 GB | 6,100    | 1s trước |  |
+|  | ds-4    | Laptop 4 (Nguyên)   | 127.0.0.1:7004         | [v] ALIVE   | 76.4 GB / 100 GB | 6,580    | 1s trước |  |
+|  | ds-5    | Laptop 5 (Quân)     | 127.0.0.1:7005         | [x] DEAD    | -- (Mất tín hiệu)| 6,500    | 25s trước|  |
 |  +---------------------------------------------------------------------------------------------------+  |
 |                                                                                                         |
 |  [!] Ghi chú Stage 1: Khi Data Server ds-5 bị Dead, các tệp tin có chunk lưu trên máy này sẽ tạm thời    |
 |      báo lỗi 'Unavailable' khi tải xuống. Tính năng tự phục hồi 3 bản sao sẽ có ở Stage 2.             |
 |                                                                                                         |
 +---------------------------------------------------------------------------------------------------------+
-| Mạng LAN: Subnet 192.168.10.0/24 | Cổng lắng nghe: Metadata 7000, Data 7001 | Thời gian: 04/11 17:05     |
+| Môi trường: Docker Compose (127.0.0.1:7000..7005) hoặc Mạng LAN (192.168.10.x:7001) | Chu kỳ: 3 giây   |
 +---------------------------------------------------------------------------------------------------------+
 ```
 
@@ -55,16 +55,16 @@ Cung cấp cái nhìn trực quan thời gian thực về hạ tầng lưu trữ
 ## 3. Các chỉ số & Thành phần hiển thị chính
 
 1. **Thẻ tóm tắt chỉ số (KPI Summary Cards):**
-   - **Data Servers:** Đếm số lượng node đang hoạt động bình thường (`Healthy`) trên tổng số 5 node.
-   - **Dung lượng lưu trữ:** Tổng hợp dung lượng trống (`free_bytes`) và thanh tỷ lệ phần trăm đã sử dụng của toàn cụm.
-   - **Tổng số khối (Chunks):** Tổng số lượng chunk 4 MB đang được lưu trữ trên tất cả các Data Server.
-   - **Metadata Node:** Thông tin node điều phối (địa chỉ IP LAN, số thứ tự command trong Op Log `lastSeq`).
+   - **Data Servers:** Đếm số lượng node đang hoạt động bình thường (`DataServerStatus.Alive`) trên tổng số 5 node.
+   - **Dung lượng lưu trữ:** Tổng hợp dung lượng trống (`FreeBytes`) và tổng dung lượng (`TotalBytes`) của toàn cụm.
+   - **Tổng số khối (Chunks):** Tổng số lượng chunk 4 MB đang được lưu trữ trên tất cả các Data Server (`ChunkCount`).
+   - **Metadata Node:** Thông tin node điều phối (địa chỉ kết nối, số thứ tự command trong Op Log `lastSeq`).
 2. **Bảng chi tiết các Data Server (DataGrid):**
    - **Node ID:** Tên định danh duy nhất của node trong cấu hình (`ds-1` đến `ds-5`).
    - **Laptop / Thành viên:** Ghi chú máy tính của ai trong nhóm để tiện theo dõi và kiểm tra vật lý.
-   - **Địa chỉ LAN (`ADVERTISE_HOST:PORT`):** Địa chỉ IP thực tế trong mạng LAN phòng lab.
-   - **Trạng thái (Status Badge):**
-     - `Healthy` (Xanh lá): Nhận được nhịp tim đều đặn trong vòng dưới 9 giây.
+   - **Địa chỉ quảng bá (`AdvertiseAddress`):** Cổng 7001–7005 trên `127.0.0.1` (Compose) hoặc port 7001 trên IP LAN của từng laptop (`192.168.10.x`).
+   - **Trạng thái (Status Badge - Khớp enum `DataServerStatus`):**
+     - `Alive` (Xanh lá): Nhận được nhịp tim đều đặn trong vòng dưới 9 giây (tối đa 3 chu kỳ heartbeat 3s).
      - `Dead` (Đỏ): Quá 3 chu kỳ nhịp tim liên tiếp (9 giây) không nhận được tin nhắn `Heartbeat`.
    - **Dung lượng trống:** Hiển thị số GB còn trống và thanh tiến trình dung lượng.
    - **Số lượng Chunk:** Số lượng khối nhị phân thực tế mà Data Server đó đang giữ trên ổ đĩa.

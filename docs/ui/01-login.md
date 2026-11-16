@@ -36,12 +36,17 @@ Cung cấp giao diện xác thực người dùng an toàn, đơn giản và tr�
 |        | ****************                                    | [Show] |
 |        +-----------------------------------------------------+        |
 |                                                                       |
-|        Máy chủ Metadata:                                              |
+|        Giao diện khởi động:                                           |
 |        +-----------------------------------------------------+        |
-|        | 192.168.10.11:7000                                  |        |
+|        | [ 🔄 Tự động (Theo quyền tài khoản)               v] |        |
 |        +-----------------------------------------------------+        |
 |                                                                       |
-|        [ ] Ghi nhớ tên đăng nhập trên máy này                         |
+|        Máy chủ Metadata (IP:Port):                                    |
+|        +-----------------------------------------------------+        |
+|        | 127.0.0.1:7000                                      |        |
+|        +-----------------------------------------------------+        |
+|                                                                       |
+|        [x] Ghi nhớ tên đăng nhập trên máy này                         |
 |                                                                       |
 |        +-----------------------------------------------------+        |
 |        |                  [ ĐĂNG NHẬP ]                      |        |
@@ -65,36 +70,42 @@ Cung cấp giao diện xác thực người dùng an toàn, đơn giản và tr�
 | `LogoHeader` | `Image` + `TextBlock` | Text: "ĐĂNG NHẬP HỆ THỐNG", 18pt Bold | Nhận diện thương hiệu đồ án |
 | `ErrorBanner` | `Border` (Nền đỏ `#F8D7DA`) | Ban đầu `IsVisible=False` | Hiển thị thông báo khi có lỗi phát sinh |
 | `TxtUsername` | `TextBox` | Placeholder: "Nhập username..." | Tên tài khoản người dùng |
-| `TxtPassword` | `TextBox` (`PasswordChar='*'`) | Nút `RevealPassword` xem mật khẩu | Mật khẩu xác thực (băm PBKDF2 ở server) |
-| `TxtEndpoint` | `TextBox` | Mặc định đọc từ config/env: `192.168.10.11:7000` | Địa chỉ IP LAN và port của Metadata Server |
-| `ChkRemember` | `CheckBox` | Mặc định: `False` | Lưu username vào cấu hình cục bộ máy |
-| `BtnLogin` | `Button` (Primary Style) | Text: "ĐĂNG NHẬP", phím tắt `Enter` | Gửi yêu cầu xác thực |
-| `LoadingIndicator` | `ProgressBar` (Indeterminate) | Ban đầu `IsVisible=False` | Hiển thị hiệu ứng xoay khi đang xử lý |
+| `TxtPassword` | `TextBox` (`PasswordChar='•'`) | Nút toggle `👁️ Hiện / 🙈 Ẩn` | Mật khẩu xác thực (băm PBKDF2 ở server) |
+| `CboTargetMode` | `ComboBox` | Mặc định: "🔄 Tự động (Theo quyền tài khoản)" | Tùy chọn giao diện đích: Tự động, User Client, Admin Panel |
+| `TxtEndpoint` | `TextBox` | Mặc định: `127.0.0.1:7000` (LAN: `192.168.10.11:7000`) | Địa chỉ IP và cổng của Metadata Server |
+| `ChkRemember` | `CheckBox` | Mặc định: `True` | Lưu username và endpoint vào `login_state.json` trên máy |
+| `BtnLogin` | `Button` (Primary Style) | Text: "ĐĂNG NHẬP", phím tắt `Enter` | Gửi yêu cầu xác thực tới máy chủ Metadata |
+| `LoadingIndicator` | `ProgressBar` (Indeterminate) | Ban đầu `IsVisible=False` | Hiển thị hiệu ứng khi gửi yêu cầu `Login` |
+
+> **Cơ chế lưu trạng thái Remember Me:**  
+> Khi tùy chọn `ChkRemember` được bật, ứng dụng tự động lưu trữ cấu hình vào file `login_state.json` (đường dẫn Windows: `%LOCALAPPDATA%\CentralizedDfs\login_state.json`, Linux: `~/.local/share/CentralizedDfs/login_state.json`). Lần mở tiếp theo, ứng dụng tự nạp lại `Username` và `Endpoint`, giúp tiết kiệm thời gian thao tác. Không lưu mật khẩu thô để đảm bảo an toàn.
 
 ---
 
 ## 4. Các trạng thái giao diện (UI States)
 
 1. **Trạng thái Mặc định (Default State):**
-   - Các ô nhập liệu trống hoặc điền sẵn username đã nhớ.
+   - Các ô nhập liệu trống hoặc điền sẵn username đã lưu từ `login_state.json`.
    - Nút `Đăng nhập` sẵn sàng kích hoạt.
-   - Thanh lỗi và tiến trình đều ẩn.
+   - Thanh lỗi và tiến trình đều ẩn. Giao diện sạch sẽ, không chứa các nút mock test thừa.
 
 2. **Trạng thái Đang xác thực (Authenticating State):**
-   - Vô hiệu hóa ô nhập `Username`, `Password`, `Endpoint` và nút `Đăng nhập` (`IsEnabled=False`).
+   - Vô hiệu hóa ô nhập `Username`, `Password`, `Endpoint`, `CboTargetMode` và nút `Đăng nhập` (`IsEnabled=False`).
    - Hiển thị thanh tiến trình `ProgressBar` đang chạy.
    - Con trỏ chuột chuyển sang dạng `Wait/Busy`.
 
 3. **Trạng thái Lỗi xác thực (Authentication Failure State):**
-   - Kích hoạt thanh `ErrorBanner` màu đỏ với nội dung cụ thể:
-     - *Sai thông tin:* "Tên đăng nhập hoặc mật khẩu không chính xác."
-     - *Tài khoản bị khóa:* "Tài khoản của bạn đã bị Quản trị viên vô hiệu hóa."
-     - *Mất kết nối:* "Không thể kết nối tới Metadata Server tại địa chỉ 192.168.10.11:7000. Vui lòng kiểm tra lại mạng LAN hoặc tường lửa."
-     - *Lệch phiên bản giao thức:* "Phiên bản ứng dụng không khớp với máy chủ (Protocol Version Mismatch)."
-   - Tự động focus lại vào ô nhập `Mật khẩu` và bôi đen văn bản để người dùng tiện gõ lại.
+   - Kích hoạt thanh `ErrorBanner` màu đỏ với nội dung cụ thể theo `ErrorCode`:
+     - *Sai thông tin hoặc tài khoản bị khóa (`ErrorCode.Unauthorized` / `Forbidden`):* "Tên đăng nhập hoặc mật khẩu không chính xác." hoặc "Tài khoản của bạn đã bị Quản trị viên vô hiệu hóa."
+     - *Mất kết nối (`ErrorCode.Unavailable`):* "Máy chủ Metadata tại 127.0.0.1:7000 hiện không khả dụng. Vui lòng kiểm tra lại dịch vụ."
+     - *Lệch phiên bản giao thức (`ErrorCode.VersionMismatch`):* "Phiên bản ứng dụng không khớp với máy chủ (Protocol Version Mismatch)."
+   - Tự động focus lại vào ô nhập `Mật khẩu` để người dùng tiện gõ lại.
 
 4. **Trạng thái Thành công (Success State):**
-   - Ẩn hoàn toàn cửa sổ Login, chuyển quyền điều khiển và mở cửa sổ chính `MainWindow` với phiên làm việc đã xác lập.
+   - Xác thực thành công: Nhận về `LoginResponse` chứa `SessionToken`, danh sách `SystemRoles` và `Permissions`.
+   - Tùy theo `CboTargetMode` và quyền hạn:
+     - `Admin Panel`: Chuyển tới giao diện Quản trị viên (`AdminShellView`).
+     - `User Client` hoặc `Tự động` (với tài khoản thường): Chuyển tới giao diện Trình duyệt tệp tin (`UserShellView` / `MainWindow`).
 
 ---
 

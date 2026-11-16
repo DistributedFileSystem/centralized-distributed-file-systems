@@ -39,7 +39,7 @@
 |     > an.nguyen/    |                             |            |           |            |                   |
 |                     |                             |            |           |            |                   |
 +---------------------+-----------------------------------------------------------------------------------+
-| 5 mục trong thư mục | Đã chọn: report_final.pdf (14.2 MB, v3, 4 chunks) | Metadata Server: Healthy      |
+| 5 mục trong thư mục | Đã chọn: report_final.pdf (14.2 MB, v3, 4 chunks) | Metadata Server: Connected (127.0.0.1:7000) |
 +---------------------------------------------------------------------------------------------------------+
 ```
 
@@ -98,11 +98,21 @@ Khi người dùng chọn một mục trong bảng danh sách và nhấp chuột
 
 ## 5. Xử lý tương tác & Ràng buộc bảo mật (RBAC Integration)
 
+- **Quy tắc chống trùng tên (Unique Name Validation):**
+  - Khi tạo thư mục mới (`CreateFolderAsync`) hoặc đổi tên (`RenameAsync`), client đối chiếu ngay với các mục hiện có trong thư mục hiện tại. Nếu phát hiện tên đã tồn tại, ứng dụng lập tức từ chối và hiển thị thông báo lỗi `AlreadyExists: Tên thư mục hoặc tệp tin đã tồn tại trong thư mục này`.
+  - Phía Metadata Server cũng kiểm tra xác thực và ném `ErrorCode.AlreadyExists` khi có command trùng tên được gửi lên.
 - **Khi người dùng chỉ có quyền `Viewer` (như tài khoản thuộc group `Guests`):**
   - Các nút **"Tải lên"**, **"Thư mục mới"**, **"Xóa"**, **"Đổi tên"** trên thanh Toolbar và trong Menu chuột phải tự động chuyển sang trạng thái xám mờ (`IsEnabled=False`).
   - Nếu cố tình thao tác bằng phím tắt: Client chặn ngay lập tức hoặc hiển thị thông báo lỗi `Forbidden: Bạn không có quyền ghi trên thư mục này`.
 - **Kéo thả tệp tin (Drag and Drop):**
   - Kéo file từ Desktop máy tính thả vào khoảng trống của DataGrid -> Tự động kích hoạt luồng tải lên vào thư mục hiện hành.
+- **Tích hợp SDK IDfsClient (`Dfs.Client.Core`):**
+  - `ListDirAsync(path)`: Tải danh sách tệp tin/thư mục con.
+  - `CreateFolderAsync(path)`: Tạo thư mục mới.
+  - `RenameAsync(path, newName)`: Đổi tên item.
+  - `MoveAsync(path, targetDir)`: Di chuyển item sang thư mục cha mới.
+  - `DeleteItemAsync(path)`: Xóa vĩnh viễn item.
+  - `ListVersionsAsync(path)`: Lấy danh sách các phiên bản đã lưu (mở Version History).
 
 ---
 

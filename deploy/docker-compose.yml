@@ -1,0 +1,129 @@
+x-dfs-service: &dfs-service
+  build:
+    context: ..
+    dockerfile: deploy/Dockerfile
+  networks:
+    - dfs-net
+
+services:
+  metadata:
+    <<: *dfs-service
+    container_name: dfs-metadata
+    profiles: ["metadata"]
+    ports:
+      - "${BIND_HOST:-127.0.0.1}:7000:7000"
+    volumes:
+      - metadata-data:/data
+    environment:
+      NODE_ROLE: metadata
+      NODE_ID: m1
+      LISTEN_PORT: "7000"
+      ADVERTISE_HOST: ${METADATA_ADVERTISE_HOST:-127.0.0.1}
+      METADATA_ENDPOINTS: ${METADATA_ENDPOINTS:-metadata:7000}
+      DATA_DIR: /data
+      TOKEN_KEY: ${TOKEN_KEY:-}
+      ADMIN_USER: ${ADMIN_USER:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/7000'"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  data-1:
+    <<: *dfs-service
+    container_name: dfs-data-1
+    profiles: ["data"]
+    ports:
+      - "${BIND_HOST:-127.0.0.1}:7001:7001"
+    volumes:
+      - data-1-data:/data
+    environment:
+      NODE_ROLE: data
+      NODE_ID: ds-1
+      LISTEN_PORT: "7001"
+      ADVERTISE_HOST: ${DATA_ADVERTISE_HOST:-127.0.0.1}
+      METADATA_ENDPOINTS: ${METADATA_ENDPOINTS:-metadata:7000}
+      DATA_DIR: /data
+      TOKEN_KEY: ${TOKEN_KEY:-}
+
+  data-2:
+    <<: *dfs-service
+    container_name: dfs-data-2
+    profiles: ["data"]
+    ports:
+      - "${BIND_HOST:-127.0.0.1}:7002:7002"
+    volumes:
+      - data-2-data:/data
+    environment:
+      NODE_ROLE: data
+      NODE_ID: ds-2
+      LISTEN_PORT: "7002"
+      ADVERTISE_HOST: ${DATA_ADVERTISE_HOST:-127.0.0.1}
+      METADATA_ENDPOINTS: ${METADATA_ENDPOINTS:-metadata:7000}
+      DATA_DIR: /data
+      TOKEN_KEY: ${TOKEN_KEY:-}
+
+  data-3:
+    <<: *dfs-service
+    container_name: dfs-data-3
+    profiles: ["data"]
+    ports:
+      - "${BIND_HOST:-127.0.0.1}:7003:7003"
+    volumes:
+      - data-3-data:/data
+    environment:
+      NODE_ROLE: data
+      NODE_ID: ds-3
+      LISTEN_PORT: "7003"
+      ADVERTISE_HOST: ${DATA_ADVERTISE_HOST:-127.0.0.1}
+      METADATA_ENDPOINTS: ${METADATA_ENDPOINTS:-metadata:7000}
+      DATA_DIR: /data
+      TOKEN_KEY: ${TOKEN_KEY:-}
+
+  data-4:
+    <<: *dfs-service
+    container_name: dfs-data-4
+    profiles: ["data"]
+    ports:
+      - "${BIND_HOST:-127.0.0.1}:7004:7004"
+    volumes:
+      - data-4-data:/data
+    environment:
+      NODE_ROLE: data
+      NODE_ID: ds-4
+      LISTEN_PORT: "7004"
+      ADVERTISE_HOST: ${DATA_ADVERTISE_HOST:-127.0.0.1}
+      METADATA_ENDPOINTS: ${METADATA_ENDPOINTS:-metadata:7000}
+      DATA_DIR: /data
+      TOKEN_KEY: ${TOKEN_KEY:-}
+
+  data-5:
+    <<: *dfs-service
+    container_name: dfs-data-5
+    profiles: ["data"]
+    ports:
+      - "${BIND_HOST:-127.0.0.1}:7005:7005"
+    volumes:
+      - data-5-data:/data
+    environment:
+      NODE_ROLE: data
+      NODE_ID: ds-5
+      LISTEN_PORT: "7005"
+      ADVERTISE_HOST: ${DATA_ADVERTISE_HOST:-127.0.0.1}
+      METADATA_ENDPOINTS: ${METADATA_ENDPOINTS:-metadata:7000}
+      DATA_DIR: /data
+      TOKEN_KEY: ${TOKEN_KEY:-}
+
+networks:
+  dfs-net:
+    driver: bridge
+
+volumes:
+  metadata-data:
+  data-1-data:
+  data-2-data:
+  data-3-data:
+  data-4-data:
+  data-5-data:

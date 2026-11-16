@@ -27,6 +27,7 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
     private IReadOnlyList<string>? _systemRoles;
     private IReadOnlyList<string>? _permissions;
     private DateTime? _sessionExpiresAt;
+    private bool _sessionExpired;
 
     private bool _disposed;
 
@@ -324,7 +325,7 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
             }
             finally
             {
-                ClearSession();
+                ClearSession(expired: false);
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -540,15 +541,16 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
 
     private void EnsureLoggedInLocked()
     {
+        CheckSessionExpiry();
+
+        if (_sessionExpired)
+        {
+            throw new DfsException(ErrorCode.Unauthorized, "Session has expired.");
+        }
+
         if (_session is null)
         {
             throw new DfsException(ErrorCode.Unauthorized, "Client is not logged in.");
-        }
-
-        if (_sessionExpiresAt.HasValue && _sessionExpiresAt.Value <= DateTime.UtcNow)
-        {
-            ClearSession();
-            throw new DfsException(ErrorCode.Unauthorized, "Session has expired.");
         }
     }
 
@@ -556,17 +558,18 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
     {
         if (_session is not null && _sessionExpiresAt.HasValue && _sessionExpiresAt.Value <= DateTime.UtcNow)
         {
-            ClearSession();
+            ClearSession(expired: true);
         }
     }
 
-    private void ClearSession()
+    private void ClearSession(bool expired = false)
     {
         _session = null;
         _currentUser = null;
         _systemRoles = null;
         _permissions = null;
         _sessionExpiresAt = null;
+        _sessionExpired = expired;
     }
 
     private async Task<TRes> SendAndReceiveAsync<TReq, TRes>(
@@ -627,7 +630,7 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
                 var error = FrameSerialization.DeserializeJson<ErrorResponse>(rawFrame.Payload);
                 if (requiresSession && error.Code == ErrorCode.Unauthorized)
                 {
-                    ClearSession();
+                    ClearSession(expired: true);
                 }
 
                 throw new DfsException(error.Code, error.Message, error.Details);
@@ -668,6 +671,7 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
                 _systemRoles = loginRes.SystemRoles;
                 _permissions = loginRes.Permissions;
                 _sessionExpiresAt = loginRes.ExpiresAt;
+                _sessionExpired = false;
             }
 
             return response;

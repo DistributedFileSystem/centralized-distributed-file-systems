@@ -94,7 +94,7 @@ public sealed class MainViewModel : ViewModelBase
         AdminPanelVm = new AdminPanelViewModel(_client);
         ClusterStatusVm = new ClusterStatusViewModel(_client);
 
-        _currentPage = LoginVm;
+        _currentPage = FileBrowserVm;
 
         NavigateFilesCommand = new RelayCommand(async () =>
         {

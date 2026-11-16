@@ -19,28 +19,28 @@ public sealed class LoginViewModel : ViewModelBase
     private readonly IDfsClient _client;
     private readonly Action<LoginResponse, string> _onLoginSuccess;
 
-    private string _username = "demo";
-    private string _password = "demo";
-    private string _endpoint = "127.0.0.1:7000";
+    private string? _username = "demo";
+    private string? _password = "demo";
+    private string? _endpoint = "127.0.0.1:7000";
     private bool _rememberMe = true;
     private bool _isPasswordRevealed;
     private string _errorMessage = "";
     private bool _isBusy;
     private int _selectedModeIndex = 0; // 0: Auto, 1: User Client, 2: Admin Panel
 
-    public string Username
+    public string? Username
     {
         get => _username;
         set => SetProperty(ref _username, value);
     }
 
-    public string Password
+    public string? Password
     {
         get => _password;
         set => SetProperty(ref _password, value);
     }
 
-    public string Endpoint
+    public string? Endpoint
     {
         get => _endpoint;
         set => SetProperty(ref _endpoint, value);
@@ -209,7 +209,7 @@ public sealed class LoginViewModel : ViewModelBase
             // Độ trễ ngắn để tester dễ quan sát Loading indicator (28-LOGIN-08)
             await Task.Delay(250);
 
-            var response = await _client.LoginAsync(Username.Trim(), Password);
+            var response = await _client.LoginAsync(Username!.Trim(), Password!);
             SaveLoginState();
             _onLoginSuccess(response, targetMode);
         }

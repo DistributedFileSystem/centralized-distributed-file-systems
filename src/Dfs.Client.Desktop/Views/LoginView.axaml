@@ -71,7 +71,7 @@
                                FontSize="12"
                                FontWeight="SemiBold"
                                Foreground="#1E293B" />
-                    <TextBox Text="{Binding Username}"
+                    <TextBox Text="{Binding Username, Mode=TwoWay, TargetNullValue=''}"
                              PlaceholderText="demo"
                              Height="36"
                              CornerRadius="6"
@@ -87,7 +87,7 @@
                                Foreground="#1E293B" />
                     <Grid ColumnDefinitions="*,Auto">
                         <TextBox Grid.Column="0"
-                                 Text="{Binding Password}"
+                                 Text="{Binding Password, Mode=TwoWay, TargetNullValue=''}"
                                  PasswordChar="{Binding PasswordChar}"
                                  PlaceholderText="••••••••"
                                  Height="36"
@@ -128,7 +128,7 @@
                                FontSize="12"
                                FontWeight="SemiBold"
                                Foreground="#1E293B" />
-                    <TextBox Text="{Binding Endpoint}"
+                    <TextBox Text="{Binding Endpoint, Mode=TwoWay, TargetNullValue=''}"
                              PlaceholderText="127.0.0.1:7000"
                              Height="36"
                              CornerRadius="6"
@@ -147,6 +147,7 @@
                 <!-- Submit Button -->
                 <Button Content="ĐĂNG NHẬP"
                         Command="{Binding LoginCommand}"
+                        HotKey="Enter"
                         IsEnabled="{Binding !IsBusy}"
                         Height="40"
                         Background="#0284C7"

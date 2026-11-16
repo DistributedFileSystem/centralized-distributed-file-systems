@@ -24,6 +24,7 @@
     <ProjectReference Include="..\..\src\Dfs.Fakes\Dfs.Fakes.csproj" />
     <ProjectReference Include="..\..\src\Dfs.MetadataServer\Dfs.MetadataServer.csproj" />
     <ProjectReference Include="..\..\src\Dfs.DataServer\Dfs.DataServer.csproj" />
+    <ProjectReference Include="..\..\src\Dfs.Client.Desktop\Dfs.Client.Desktop.csproj" />
   </ItemGroup>
 
 </Project>

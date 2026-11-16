@@ -32,7 +32,7 @@
 
     <Grid>
         <!-- Unauthenticated State: Show Login directly -->
-        <ContentControl Content="{Binding CurrentPage}"
+        <ContentControl Content="{Binding LoginVm}"
                         IsVisible="{Binding IsNotLoggedIn}" />
 
         <!-- Authenticated State: Sidebar + Dynamic Main Content -->

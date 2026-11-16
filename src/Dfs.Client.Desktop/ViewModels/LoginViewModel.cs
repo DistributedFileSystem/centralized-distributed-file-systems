@@ -92,12 +92,12 @@ public sealed class LoginViewModel : ViewModelBase
         set => SetProperty(ref _selectedModeIndex, value);
     }
 
-    public IReadOnlyList<string> AvailableModes { get; } =
-    [
+    public IReadOnlyList<string> AvailableModes { get; } = new[]
+    {
         "🔄 Tự động (Theo quyền tài khoản)",
         "📁 User Client (Giao diện Người dùng)",
         "🛡️ Admin Panel (Giao diện Quản trị viên)"
-    ];
+    };
 
     public ICommand LoginCommand { get; }
     public ICommand TogglePasswordRevealCommand { get; }
@@ -184,7 +184,7 @@ public sealed class LoginViewModel : ViewModelBase
         }
     }
 
-    public async Task ExecuteLoginAsync(string targetMode = "auto")
+    private async Task ExecuteLoginAsync(string targetMode)
     {
         if (IsBusy) return;
 
@@ -206,6 +206,9 @@ public sealed class LoginViewModel : ViewModelBase
 
         try
         {
+            // Độ trễ ngắn để tester dễ quan sát Loading indicator (28-LOGIN-08)
+            await Task.Delay(250);
+
             var response = await _client.LoginAsync(Username.Trim(), Password);
             SaveLoginState();
             _onLoginSuccess(response, targetMode);
@@ -214,7 +217,7 @@ public sealed class LoginViewModel : ViewModelBase
         {
             ErrorMessage = ex.Code switch
             {
-                ErrorCode.Unauthorized => "Tên đăng nhập hoặc mật khẩu không chính xác.",
+                ErrorCode.Unauthorized => "Tên đăng nhập hoặc mật khẩu không chính xác (Thử demo/demo).",
                 ErrorCode.Forbidden => "Tài khoản của bạn đã bị Quản trị viên vô hiệu hóa.",
                 ErrorCode.Unavailable => $"Máy chủ Metadata tại {_endpoint} hiện không khả dụng. Vui lòng kiểm tra lại dịch vụ.",
                 _ => $"Lỗi xác thực: {ex.Message} ({ex.Code})"
@@ -222,7 +225,7 @@ public sealed class LoginViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
-            ErrorMessage = $"Không thể kết nối tới máy chủ Metadata: {ex.Message}";
+            ErrorMessage = $"Không thể kết nối tới máy chủ Metadata tại {_endpoint}. Vui lòng kiểm tra lại mạng LAN hoặc tường lửa. Chi tiết: {ex.Message}";
         }
         finally
         {

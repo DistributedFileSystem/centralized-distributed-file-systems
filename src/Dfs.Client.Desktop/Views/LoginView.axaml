@@ -146,8 +146,8 @@
 
                 <!-- Submit Button -->
                 <Button Content="ĐĂNG NHẬP"
-                        Command="{Binding LoginCommand}"
                         HotKey="Enter"
+                        Command="{Binding LoginCommand}"
                         IsEnabled="{Binding !IsBusy}"
                         Height="40"
                         Background="#0284C7"

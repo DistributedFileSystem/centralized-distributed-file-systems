@@ -54,26 +54,6 @@ public class DfsClientTests : IAsyncDisposable
         Assert.Empty(DfsClientOptions.ParseEndpoints("   "));
     }
 
-    [Fact]
-    public void Options_FromEnvironment_FallsBackToDefaultWhenUnset()
-    {
-        var original = Environment.GetEnvironmentVariable("METADATA_ENDPOINTS");
-        try
-        {
-            Environment.SetEnvironmentVariable("METADATA_ENDPOINTS", null);
-            var options = DfsClientOptions.FromEnvironment();
-            Assert.Equal(new[] { DfsClientOptions.DefaultEndpoint }, options.MetadataEndpoints);
-
-            Environment.SetEnvironmentVariable("METADATA_ENDPOINTS", "10.0.0.5:8000, 10.0.0.6:8000");
-            var custom = DfsClientOptions.FromEnvironment();
-            Assert.Equal(new[] { "10.0.0.5:8000", "10.0.0.6:8000" }, custom.MetadataEndpoints);
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable("METADATA_ENDPOINTS", original);
-        }
-    }
-
     // -------------------------------------------------------------
     // Connection & Handshake Tests
     // -------------------------------------------------------------
@@ -453,6 +433,30 @@ public class DfsClientTests : IAsyncDisposable
         Assert.Equal(originalSession, client.Session);
     }
 
+    [Fact]
+    public async Task LogoutAsync_WhenCancelledOrSlow_DisconnectsAndAllowsSubsequentLogin()
+    {
+        await using var mock = new MockMetadataServer { DelayLogoutResponse = true };
+        mock.Start();
+
+        var client = Register(new DfsClient(mock.Address));
+        await client.LoginAsync("alice", "secret");
+        Assert.True(client.IsLoggedIn);
+
+        // Cancel logout midway to trigger socket disconnection
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => client.LogoutAsync(cts.Token));
+
+        // Client local state is dropped
+        Assert.False(client.IsLoggedIn);
+        Assert.Null(client.Session);
+
+        // Subsequent login on the same client must succeed because dirty/delayed connection was disconnected
+        var loginRes = await client.LoginAsync("alice", "secret");
+        Assert.True(client.IsLoggedIn);
+        Assert.Equal("mock-session-123", loginRes.Session);
+    }
+
     // -------------------------------------------------------------
     // Helper Mock Server
     // -------------------------------------------------------------
@@ -467,6 +471,7 @@ public class DfsClientTests : IAsyncDisposable
 
         public ErrorCode? RejectWith { get; set; }
         public bool RejectHelloWithVersionMismatch { get; set; }
+        public bool DelayLogoutResponse { get; set; }
         public TimeSpan? SessionDuration { get; set; }
         public string Address => $"127.0.0.1:{((IPEndPoint)_listener.LocalEndpoint).Port}";
 
@@ -564,6 +569,15 @@ public class DfsClientTests : IAsyncDisposable
                             await FrameCodec.WriteMessageAsync(stream, MessageType.LoginResponse, loginRes, ct).ConfigureAwait(false);
                             break;
 
+                        case MessageType.Logout:
+                            var logoutReq = FrameSerialization.DeserializeJson<Logout>(frame.Payload);
+                            if (DelayLogoutResponse)
+                            {
+                                await Task.Delay(300, ct).ConfigureAwait(false);
+                            }
+                            await FrameCodec.WriteMessageAsync(stream, MessageType.LogoutResponse, new LogoutResponse(logoutReq.RequestId), ct).ConfigureAwait(false);
+                            break;
+
                         case MessageType.CreateFolder:
                             var cfReq = FrameSerialization.DeserializeJson<CreateFolder>(frame.Payload);
                             var folder = new ItemInfo("item-f", cfReq.Path, "new", ItemKind.Folder, 0, "u-1", 0, DateTime.UtcNow);
@@ -611,6 +625,30 @@ public class DfsClientTests : IAsyncDisposable
                 }
             }
             _cts?.Dispose();
+        }
+    }
+}
+
+[Collection("EnvironmentVariables")]
+public class DfsClientEnvironmentTests
+{
+    [Fact]
+    public void Options_FromEnvironment_FallsBackToDefaultWhenUnset()
+    {
+        var original = Environment.GetEnvironmentVariable("METADATA_ENDPOINTS");
+        try
+        {
+            Environment.SetEnvironmentVariable("METADATA_ENDPOINTS", null);
+            var options = DfsClientOptions.FromEnvironment();
+            Assert.Equal(new[] { DfsClientOptions.DefaultEndpoint }, options.MetadataEndpoints);
+
+            Environment.SetEnvironmentVariable("METADATA_ENDPOINTS", "10.0.0.5:8000, 10.0.0.6:8000");
+            var custom = DfsClientOptions.FromEnvironment();
+            Assert.Equal(new[] { "10.0.0.5:8000", "10.0.0.6:8000" }, custom.MetadataEndpoints);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("METADATA_ENDPOINTS", original);
         }
     }
 }

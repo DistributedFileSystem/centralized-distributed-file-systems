@@ -16,6 +16,7 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
     private readonly DfsClientOptions _options;
     private readonly IReadOnlyList<string> _endpoints;
     private readonly SemaphoreSlim _streamLock = new(1, 1);
+    private readonly object _sessionLock = new();
 
     private TcpClient? _tcpClient;
     private NetworkStream? _stream;
@@ -76,8 +77,11 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
     {
         get
         {
-            CheckSessionExpiry();
-            return _session is not null;
+            lock (_sessionLock)
+            {
+                CheckSessionExpiryLocked();
+                return _session is not null;
+            }
         }
     }
 
@@ -88,8 +92,11 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
     {
         get
         {
-            CheckSessionExpiry();
-            return _session;
+            lock (_sessionLock)
+            {
+                CheckSessionExpiryLocked();
+                return _session;
+            }
         }
     }
 
@@ -100,8 +107,11 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
     {
         get
         {
-            CheckSessionExpiry();
-            return _currentUser;
+            lock (_sessionLock)
+            {
+                CheckSessionExpiryLocked();
+                return _currentUser;
+            }
         }
     }
 
@@ -112,8 +122,11 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
     {
         get
         {
-            CheckSessionExpiry();
-            return _systemRoles;
+            lock (_sessionLock)
+            {
+                CheckSessionExpiryLocked();
+                return _systemRoles;
+            }
         }
     }
 
@@ -124,8 +137,11 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
     {
         get
         {
-            CheckSessionExpiry();
-            return _permissions;
+            lock (_sessionLock)
+            {
+                CheckSessionExpiryLocked();
+                return _permissions;
+            }
         }
     }
 
@@ -295,7 +311,12 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
         await _streamLock.WaitAsync(token).ConfigureAwait(false);
         try
         {
-            var sessionToRevoke = _session;
+            string? sessionToRevoke;
+            lock (_sessionLock)
+            {
+                sessionToRevoke = _session;
+            }
+
             if (sessionToRevoke is null)
             {
                 return;
@@ -319,13 +340,22 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
                     DisconnectInternal();
                 }
             }
-            catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
-                // Ignore server-side logout failures (e.g. network down, server unavailable, session already deleted/expired)
+                DisconnectInternal();
+                throw;
+            }
+            catch (Exception)
+            {
+                // Disconnect on any failure/timeout during logout to ensure no dirty bytes remain on the socket
+                DisconnectInternal();
             }
             finally
             {
-                ClearSession(expired: false);
+                lock (_sessionLock)
+                {
+                    ClearSessionLocked(expired: false);
+                }
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -541,28 +571,31 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
 
     private void EnsureLoggedInLocked()
     {
-        CheckSessionExpiry();
-
-        if (_sessionExpired)
+        lock (_sessionLock)
         {
-            throw new DfsException(ErrorCode.Unauthorized, "Session has expired.");
-        }
+            CheckSessionExpiryLocked();
 
-        if (_session is null)
-        {
-            throw new DfsException(ErrorCode.Unauthorized, "Client is not logged in.");
+            if (_sessionExpired)
+            {
+                throw new DfsException(ErrorCode.Unauthorized, "Session has expired.");
+            }
+
+            if (_session is null)
+            {
+                throw new DfsException(ErrorCode.Unauthorized, "Client is not logged in.");
+            }
         }
     }
 
-    private void CheckSessionExpiry()
+    private void CheckSessionExpiryLocked()
     {
         if (_session is not null && _sessionExpiresAt.HasValue && _sessionExpiresAt.Value <= DateTime.UtcNow)
         {
-            ClearSession(expired: true);
+            ClearSessionLocked(expired: true);
         }
     }
 
-    private void ClearSession(bool expired = false)
+    private void ClearSessionLocked(bool expired = false)
     {
         _session = null;
         _currentUser = null;
@@ -594,7 +627,13 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
                 EnsureLoggedInLocked();
             }
 
-            var request = requestFactory(_session);
+            string? session;
+            lock (_sessionLock)
+            {
+                session = _session;
+            }
+
+            var request = requestFactory(session);
 
             await EnsureConnectedInternalAsync(token).ConfigureAwait(false);
 
@@ -640,7 +679,10 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
 
                 if (requiresSession && error.Code == ErrorCode.Unauthorized)
                 {
-                    ClearSession(expired: true);
+                    lock (_sessionLock)
+                    {
+                        ClearSessionLocked(expired: true);
+                    }
                 }
 
                 throw new DfsException(error.Code, error.Message, error.Details);
@@ -676,12 +718,15 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
 
             if (response is LoginResponse loginRes)
             {
-                _session = loginRes.Session;
-                _currentUser = loginRes.User;
-                _systemRoles = loginRes.SystemRoles;
-                _permissions = loginRes.Permissions;
-                _sessionExpiresAt = loginRes.ExpiresAt;
-                _sessionExpired = false;
+                lock (_sessionLock)
+                {
+                    _session = loginRes.Session;
+                    _currentUser = loginRes.User;
+                    _systemRoles = loginRes.SystemRoles;
+                    _permissions = loginRes.Permissions;
+                    _sessionExpiresAt = loginRes.ExpiresAt;
+                    _sessionExpired = false;
+                }
             }
 
             return response;
@@ -738,26 +783,26 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
 
     private void DisconnectInternal()
     {
-        try
-        {
-            _stream?.Dispose();
-        }
-        catch
-        {
-        }
-
-        try
-        {
-            _tcpClient?.Dispose();
-        }
-        catch
-        {
-        }
-
-        _stream = null;
-        _tcpClient = null;
+        var stream = Interlocked.Exchange(ref _stream, null);
+        var tcp = Interlocked.Exchange(ref _tcpClient, null);
         _connectedEndpoint = null;
         _connectedNodeId = null;
+
+        try
+        {
+            stream?.Dispose();
+        }
+        catch
+        {
+        }
+
+        try
+        {
+            tcp?.Dispose();
+        }
+        catch
+        {
+        }
     }
 
     private static bool IsSocketConnected(TcpClient? client)

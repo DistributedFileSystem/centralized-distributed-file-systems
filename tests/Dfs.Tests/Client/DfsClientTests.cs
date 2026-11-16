@@ -374,6 +374,85 @@ public class DfsClientTests : IAsyncDisposable
         client.Dispose();
     }
 
+    [Fact]
+    public async Task Hello_ReturningVersionMismatch_ThrowsVersionMismatchNotUnavailable()
+    {
+        await using var mock = new MockMetadataServer { RejectHelloWithVersionMismatch = true };
+        mock.Start();
+
+        var client = Register(new DfsClient(mock.Address));
+        var ex = await Assert.ThrowsAsync<DfsException>(() => client.ConnectAsync());
+        Assert.Equal(ErrorCode.VersionMismatch, ex.Code);
+    }
+
+    [Fact]
+    public async Task LoginAsync_Failure_DoesNotClearExistingSession()
+    {
+        await using var mock = new MockMetadataServer();
+        mock.Start();
+
+        var client = Register(new DfsClient(mock.Address));
+        var res = await client.LoginAsync("alice", "secret");
+        Assert.True(client.IsLoggedIn);
+        Assert.Equal("mock-session-123", client.Session);
+        Assert.Equal("alice", client.CurrentUser?.Username);
+
+        // Subsequent failed login attempt with wrong credentials
+        mock.RejectWith = ErrorCode.Unauthorized;
+        var ex = await Assert.ThrowsAsync<DfsException>(() => client.LoginAsync("bob", "wrong-pwd"));
+        Assert.Equal(ErrorCode.Unauthorized, ex.Code);
+
+        // Previous session should still be intact and valid
+        Assert.True(client.IsLoggedIn);
+        Assert.Equal(res.Session, client.Session);
+        Assert.Equal("alice", client.CurrentUser?.Username);
+    }
+
+    [Fact]
+    public async Task LocalSessionExpired_ThrowsUnauthorized()
+    {
+        await using var mock = new MockMetadataServer
+        {
+            SessionDuration = TimeSpan.FromMilliseconds(-100) // already expired
+        };
+        mock.Start();
+
+        var client = Register(new DfsClient(mock.Address));
+        await client.LoginAsync("alice", "secret");
+
+        // Expired session should be detected locally without sending request
+        Assert.False(client.IsLoggedIn);
+        Assert.Null(client.Session);
+
+        var ex = await Assert.ThrowsAsync<DfsException>(() => client.CreateFolderAsync("/test"));
+        Assert.Equal(ErrorCode.Unauthorized, ex.Code);
+        Assert.Contains("expired", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task TcpDrop_ReconnectionPreservesSession()
+    {
+        await using var mock = new MockMetadataServer();
+        mock.Start();
+
+        var client = Register(new DfsClient(mock.Address));
+        await client.LoginAsync("alice", "secret");
+        Assert.True(client.IsLoggedIn);
+        var originalSession = client.Session;
+
+        // Disconnect underlying connection abruptly (simulating server drop or network glitch)
+        mock.CloseAllClients();
+
+        // Give TCP stack a moment to reflect disconnect
+        await Task.Delay(50);
+
+        // Next namespace call should automatically reconnect and maintain existing session
+        var created = await client.CreateFolderAsync("/projects/reconnected");
+        Assert.Equal("/projects/reconnected", created.Path);
+        Assert.True(client.IsLoggedIn);
+        Assert.Equal(originalSession, client.Session);
+    }
+
     // -------------------------------------------------------------
     // Helper Mock Server
     // -------------------------------------------------------------
@@ -381,10 +460,14 @@ public class DfsClientTests : IAsyncDisposable
     private sealed class MockMetadataServer : IAsyncDisposable
     {
         private readonly TcpListener _listener = new(IPAddress.Loopback, 0);
+        private readonly List<TcpClient> _activeClients = new();
+        private readonly object _clientsLock = new();
         private CancellationTokenSource? _cts;
         private Task? _loopTask;
 
         public ErrorCode? RejectWith { get; set; }
+        public bool RejectHelloWithVersionMismatch { get; set; }
+        public TimeSpan? SessionDuration { get; set; }
         public string Address => $"127.0.0.1:{((IPEndPoint)_listener.LocalEndpoint).Port}";
 
         public void Start()
@@ -394,6 +477,18 @@ public class DfsClientTests : IAsyncDisposable
             _loopTask = Task.Run(() => AcceptLoopAsync(_cts.Token));
         }
 
+        public void CloseAllClients()
+        {
+            lock (_clientsLock)
+            {
+                foreach (var c in _activeClients)
+                {
+                    try { c.Close(); } catch { }
+                }
+                _activeClients.Clear();
+            }
+        }
+
         private async Task AcceptLoopAsync(CancellationToken ct)
         {
             while (!ct.IsCancellationRequested)
@@ -401,7 +496,25 @@ public class DfsClientTests : IAsyncDisposable
                 try
                 {
                     var client = await _listener.AcceptTcpClientAsync(ct).ConfigureAwait(false);
-                    _ = Task.Run(() => HandleClientAsync(client, ct), CancellationToken.None);
+                    lock (_clientsLock)
+                    {
+                        _activeClients.Add(client);
+                    }
+
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await HandleClientAsync(client, ct).ConfigureAwait(false);
+                        }
+                        finally
+                        {
+                            lock (_clientsLock)
+                            {
+                                _activeClients.Remove(client);
+                            }
+                        }
+                    }, CancellationToken.None);
                 }
                 catch when (ct.IsCancellationRequested)
                 {
@@ -415,6 +528,17 @@ public class DfsClientTests : IAsyncDisposable
             using (client)
             await using (var stream = client.GetStream())
             {
+                if (RejectHelloWithVersionMismatch)
+                {
+                    var helloRaw = await FrameCodec.ReadRawFrameAsync(stream, ct).ConfigureAwait(false);
+                    if (helloRaw is not null)
+                    {
+                        var err = new ErrorResponse("hello-err", ErrorCode.VersionMismatch, "Server requires protocol version 999.");
+                        await FrameCodec.WriteMessageAsync(stream, MessageType.Error, err, ct).ConfigureAwait(false);
+                    }
+                    return;
+                }
+
                 var hello = await HandshakeHandler.ServerHandshakeAsync(stream, "mock-meta", NodeType.Metadata, ct);
                 if (hello is null) return;
 
@@ -434,7 +558,8 @@ public class DfsClientTests : IAsyncDisposable
                     {
                         case MessageType.Login:
                             var loginReq = FrameSerialization.DeserializeJson<Login>(frame.Payload);
-                            var loginRes = new LoginResponse(loginReq.RequestId, "mock-session-123", DateTime.UtcNow.AddHours(1),
+                            var expiresAt = SessionDuration.HasValue ? DateTime.UtcNow.Add(SessionDuration.Value) : DateTime.UtcNow.AddHours(1);
+                            var loginRes = new LoginResponse(loginReq.RequestId, "mock-session-123", expiresAt,
                                 new UserRef("u-1", loginReq.Username), new ValueList<string>(new[] { "Admin" }), new ValueList<string>(new[] { "item.list" }));
                             await FrameCodec.WriteMessageAsync(stream, MessageType.LoginResponse, loginRes, ct).ConfigureAwait(false);
                             break;

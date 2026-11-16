@@ -71,32 +71,67 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
     /// <summary>
     /// True if the client is currently logged in with an active session token.
     /// </summary>
-    public bool IsLoggedIn => _session is not null && (!_sessionExpiresAt.HasValue || _sessionExpiresAt.Value > DateTime.UtcNow);
+    public bool IsLoggedIn
+    {
+        get
+        {
+            CheckSessionExpiry();
+            return _session is not null;
+        }
+    }
 
     /// <summary>
     /// Active session token, or null if not logged in.
     /// </summary>
-    public string? Session => _session;
+    public string? Session
+    {
+        get
+        {
+            CheckSessionExpiry();
+            return _session;
+        }
+    }
 
     /// <summary>
     /// Currently logged in user reference, or null.
     /// </summary>
-    public UserRef? CurrentUser => _currentUser;
+    public UserRef? CurrentUser
+    {
+        get
+        {
+            CheckSessionExpiry();
+            return _currentUser;
+        }
+    }
 
     /// <summary>
     /// System roles assigned to the current user, or null.
     /// </summary>
-    public IReadOnlyList<string>? SystemRoles => _systemRoles;
+    public IReadOnlyList<string>? SystemRoles
+    {
+        get
+        {
+            CheckSessionExpiry();
+            return _systemRoles;
+        }
+    }
 
     /// <summary>
     /// Permissions granted to the current user, or null.
     /// </summary>
-    public IReadOnlyList<string>? Permissions => _permissions;
+    public IReadOnlyList<string>? Permissions
+    {
+        get
+        {
+            CheckSessionExpiry();
+            return _permissions;
+        }
+    }
 
     /// <summary>
     /// True if the underlying TCP client is connected.
     /// </summary>
-    public bool IsConnected => _tcpClient?.Connected == true && _stream is not null;
+    public bool IsConnected => _tcpClient is not null && _stream is not null && IsSocketConnected(_tcpClient);
 
     /// <summary>
     /// The endpoint string currently connected to, or null.
@@ -138,6 +173,8 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
         DisconnectInternal();
 
         List<Exception> errors = new();
+        DfsException? versionMismatchError = null;
+        DfsException? badRequestError = null;
 
         foreach (var endpoint in _endpoints)
         {
@@ -191,11 +228,33 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
                 tcpClient?.Dispose();
                 throw;
             }
+            catch (DfsException ex) when (ex.Code == ErrorCode.VersionMismatch)
+            {
+                tcpClient?.Dispose();
+                versionMismatchError ??= ex;
+                errors.Add(ex);
+            }
+            catch (DfsException ex) when (ex.Code == ErrorCode.BadRequest)
+            {
+                tcpClient?.Dispose();
+                badRequestError ??= ex;
+                errors.Add(ex);
+            }
             catch (Exception ex)
             {
                 tcpClient?.Dispose();
                 errors.Add(new InvalidOperationException($"Endpoint '{endpoint}' failed: {ex.Message}", ex));
             }
+        }
+
+        if (versionMismatchError is not null)
+        {
+            throw versionMismatchError;
+        }
+
+        if (badRequestError is not null)
+        {
+            throw badRequestError;
         }
 
         throw new DfsException(
@@ -214,25 +273,13 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
         }
 
         var reqId = Guid.NewGuid().ToString("D");
-        var req = new Login(reqId, username, password);
-        var res = await SendAndReceiveAsync<Login, LoginResponse>(
-            reqId, MessageType.Login, MessageType.LoginResponse, req, cancellationToken).ConfigureAwait(false);
-
-        await _streamLock.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            _session = res.Session;
-            _currentUser = res.User;
-            _systemRoles = res.SystemRoles;
-            _permissions = res.Permissions;
-            _sessionExpiresAt = res.ExpiresAt;
-        }
-        finally
-        {
-            _streamLock.Release();
-        }
-
-        return res;
+        return await SendAndReceiveAsync<Login, LoginResponse>(
+            reqId,
+            MessageType.Login,
+            MessageType.LoginResponse,
+            _ => new Login(reqId, username, password),
+            requiresSession: false,
+            cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -240,47 +287,53 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
     {
         ThrowIfDisposed();
 
-        string? sessionToRevoke;
-        await _streamLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        linkedCts.CancelAfter(_options.RequestTimeout);
+        var token = linkedCts.Token;
+
+        await _streamLock.WaitAsync(token).ConfigureAwait(false);
         try
         {
-            sessionToRevoke = _session;
+            var sessionToRevoke = _session;
+            if (sessionToRevoke is null)
+            {
+                return;
+            }
+
+            try
+            {
+                await EnsureConnectedInternalAsync(token).ConfigureAwait(false);
+
+                var reqId = Guid.NewGuid().ToString("D");
+                var req = new Logout(reqId, sessionToRevoke);
+
+                await FrameCodec.WriteMessageAsync(_stream!, MessageType.Logout, req, token).ConfigureAwait(false);
+                var rawFrame = await FrameCodec.ReadRawFrameAsync(_stream!, token).ConfigureAwait(false);
+                if (rawFrame is null)
+                {
+                    DisconnectInternal();
+                }
+                else if (rawFrame.Type != MessageType.LogoutResponse && rawFrame.Type != MessageType.Error)
+                {
+                    DisconnectInternal();
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+            {
+                // Ignore server-side logout failures (e.g. network down, server unavailable, session already deleted/expired)
+            }
+            finally
+            {
+                ClearSession();
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         finally
         {
             _streamLock.Release();
-        }
-
-        if (sessionToRevoke is null)
-        {
-            return;
-        }
-
-        try
-        {
-            var reqId = Guid.NewGuid().ToString("D");
-            var req = new Logout(reqId, sessionToRevoke);
-            await SendAndReceiveAsync<Logout, LogoutResponse>(
-                reqId, MessageType.Logout, MessageType.LogoutResponse, req, cancellationToken).ConfigureAwait(false);
-        }
-        catch (DfsException)
-        {
-            // Ignore server-side logout failures (e.g. network down, session already deleted/expired)
-        }
-        finally
-        {
-            await _streamLock.WaitAsync(CancellationToken.None).ConfigureAwait(false);
-            try
-            {
-                if (_session == sessionToRevoke)
-                {
-                    ClearSession();
-                }
-            }
-            finally
-            {
-                _streamLock.Release();
-            }
         }
     }
 
@@ -288,12 +341,15 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
     public async Task<IReadOnlyList<ItemInfo>> ListDirAsync(string path, CancellationToken cancellationToken = default)
     {
         ThrowIfDisposed();
-        EnsureLoggedIn();
 
         var reqId = Guid.NewGuid().ToString("D");
-        var req = new ListDir(reqId, _session!, path);
         var res = await SendAndReceiveAsync<ListDir, ListDirResponse>(
-            reqId, MessageType.ListDir, MessageType.ListDirResponse, req, cancellationToken).ConfigureAwait(false);
+            reqId,
+            MessageType.ListDir,
+            MessageType.ListDirResponse,
+            session => new ListDir(reqId, session!, path),
+            requiresSession: true,
+            cancellationToken).ConfigureAwait(false);
         return res.Items;
     }
 
@@ -301,12 +357,15 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
     public async Task<ItemInfo> StatAsync(string path, CancellationToken cancellationToken = default)
     {
         ThrowIfDisposed();
-        EnsureLoggedIn();
 
         var reqId = Guid.NewGuid().ToString("D");
-        var req = new Stat(reqId, _session!, path);
         var res = await SendAndReceiveAsync<Stat, StatResponse>(
-            reqId, MessageType.Stat, MessageType.StatResponse, req, cancellationToken).ConfigureAwait(false);
+            reqId,
+            MessageType.Stat,
+            MessageType.StatResponse,
+            session => new Stat(reqId, session!, path),
+            requiresSession: true,
+            cancellationToken).ConfigureAwait(false);
         return res.Item;
     }
 
@@ -314,12 +373,15 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
     public async Task<IReadOnlyList<VersionInfo>> ListVersionsAsync(string path, CancellationToken cancellationToken = default)
     {
         ThrowIfDisposed();
-        EnsureLoggedIn();
 
         var reqId = Guid.NewGuid().ToString("D");
-        var req = new ListVersions(reqId, _session!, path);
         var res = await SendAndReceiveAsync<ListVersions, ListVersionsResponse>(
-            reqId, MessageType.ListVersions, MessageType.ListVersionsResponse, req, cancellationToken).ConfigureAwait(false);
+            reqId,
+            MessageType.ListVersions,
+            MessageType.ListVersionsResponse,
+            session => new ListVersions(reqId, session!, path),
+            requiresSession: true,
+            cancellationToken).ConfigureAwait(false);
         return res.Versions;
     }
 
@@ -327,12 +389,15 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
     public async Task<ItemInfo> CreateFolderAsync(string path, CancellationToken cancellationToken = default)
     {
         ThrowIfDisposed();
-        EnsureLoggedIn();
 
         var reqId = Guid.NewGuid().ToString("D");
-        var req = new CreateFolder(reqId, _session!, path);
         var res = await SendAndReceiveAsync<CreateFolder, CreateFolderResponse>(
-            reqId, MessageType.CreateFolder, MessageType.CreateFolderResponse, req, cancellationToken).ConfigureAwait(false);
+            reqId,
+            MessageType.CreateFolder,
+            MessageType.CreateFolderResponse,
+            session => new CreateFolder(reqId, session!, path),
+            requiresSession: true,
+            cancellationToken).ConfigureAwait(false);
         return res.Item;
     }
 
@@ -340,12 +405,15 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
     public async Task<ItemInfo> RenameAsync(string path, string newName, CancellationToken cancellationToken = default)
     {
         ThrowIfDisposed();
-        EnsureLoggedIn();
 
         var reqId = Guid.NewGuid().ToString("D");
-        var req = new Rename(reqId, _session!, path, newName);
         var res = await SendAndReceiveAsync<Rename, RenameResponse>(
-            reqId, MessageType.Rename, MessageType.RenameResponse, req, cancellationToken).ConfigureAwait(false);
+            reqId,
+            MessageType.Rename,
+            MessageType.RenameResponse,
+            session => new Rename(reqId, session!, path, newName),
+            requiresSession: true,
+            cancellationToken).ConfigureAwait(false);
         return res.Item;
     }
 
@@ -353,12 +421,15 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
     public async Task<ItemInfo> MoveAsync(string path, string newParentPath, CancellationToken cancellationToken = default)
     {
         ThrowIfDisposed();
-        EnsureLoggedIn();
 
         var reqId = Guid.NewGuid().ToString("D");
-        var req = new Move(reqId, _session!, path, newParentPath);
         var res = await SendAndReceiveAsync<Move, MoveResponse>(
-            reqId, MessageType.Move, MessageType.MoveResponse, req, cancellationToken).ConfigureAwait(false);
+            reqId,
+            MessageType.Move,
+            MessageType.MoveResponse,
+            session => new Move(reqId, session!, path, newParentPath),
+            requiresSession: true,
+            cancellationToken).ConfigureAwait(false);
         return res.Item;
     }
 
@@ -366,24 +437,30 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
     public async Task DeleteItemAsync(string path, CancellationToken cancellationToken = default)
     {
         ThrowIfDisposed();
-        EnsureLoggedIn();
 
         var reqId = Guid.NewGuid().ToString("D");
-        var req = new DeleteItem(reqId, _session!, path);
         await SendAndReceiveAsync<DeleteItem, DeleteItemResponse>(
-            reqId, MessageType.DeleteItem, MessageType.DeleteItemResponse, req, cancellationToken).ConfigureAwait(false);
+            reqId,
+            MessageType.DeleteItem,
+            MessageType.DeleteItemResponse,
+            session => new DeleteItem(reqId, session!, path),
+            requiresSession: true,
+            cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
     public async Task<IReadOnlyList<DataServerInfo>> ClusterStatusAsync(CancellationToken cancellationToken = default)
     {
         ThrowIfDisposed();
-        EnsureLoggedIn();
 
         var reqId = Guid.NewGuid().ToString("D");
-        var req = new ClusterStatus(reqId, _session!);
         var res = await SendAndReceiveAsync<ClusterStatus, ClusterStatusResponse>(
-            reqId, MessageType.ClusterStatus, MessageType.ClusterStatusResponse, req, cancellationToken).ConfigureAwait(false);
+            reqId,
+            MessageType.ClusterStatus,
+            MessageType.ClusterStatusResponse,
+            session => new ClusterStatus(reqId, session!),
+            requiresSession: true,
+            cancellationToken).ConfigureAwait(false);
         return res.DataServers;
     }
 
@@ -461,7 +538,7 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
         await ConnectInternalAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    private void EnsureLoggedIn()
+    private void EnsureLoggedInLocked()
     {
         if (_session is null)
         {
@@ -472,6 +549,14 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
         {
             ClearSession();
             throw new DfsException(ErrorCode.Unauthorized, "Session has expired.");
+        }
+    }
+
+    private void CheckSessionExpiry()
+    {
+        if (_session is not null && _sessionExpiresAt.HasValue && _sessionExpiresAt.Value <= DateTime.UtcNow)
+        {
+            ClearSession();
         }
     }
 
@@ -488,13 +573,12 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
         string requestId,
         MessageType requestType,
         MessageType expectedResponseType,
-        TReq request,
+        Func<string?, TReq> requestFactory,
+        bool requiresSession,
         CancellationToken cancellationToken)
         where TReq : class
         where TRes : class
     {
-        var currentSession = _session;
-
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         linkedCts.CancelAfter(_options.RequestTimeout);
         var token = linkedCts.Token;
@@ -502,6 +586,13 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
         await _streamLock.WaitAsync(token).ConfigureAwait(false);
         try
         {
+            if (requiresSession)
+            {
+                EnsureLoggedInLocked();
+            }
+
+            var request = requestFactory(_session);
+
             await EnsureConnectedInternalAsync(token).ConfigureAwait(false);
 
             try
@@ -534,7 +625,7 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
             if (rawFrame.Type == MessageType.Error)
             {
                 var error = FrameSerialization.DeserializeJson<ErrorResponse>(rawFrame.Payload);
-                if (error.Code == ErrorCode.Unauthorized && _session == currentSession)
+                if (requiresSession && error.Code == ErrorCode.Unauthorized)
                 {
                     ClearSession();
                 }
@@ -559,15 +650,27 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
                     $"RequestId mismatch: expected '{requestId}' but received '{respRequestId}'.");
             }
 
+            TRes response;
             try
             {
-                return FrameSerialization.DeserializeJson<TRes>(rawFrame.Payload);
+                response = FrameSerialization.DeserializeJson<TRes>(rawFrame.Payload);
             }
             catch
             {
                 DisconnectInternal();
                 throw;
             }
+
+            if (response is LoginResponse loginRes)
+            {
+                _session = loginRes.Session;
+                _currentUser = loginRes.User;
+                _systemRoles = loginRes.SystemRoles;
+                _permissions = loginRes.Permissions;
+                _sessionExpiresAt = loginRes.ExpiresAt;
+            }
+
+            return response;
         }
         catch (DfsException)
         {
@@ -641,6 +744,29 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
         _tcpClient = null;
         _connectedEndpoint = null;
         _connectedNodeId = null;
+    }
+
+    private static bool IsSocketConnected(TcpClient? client)
+    {
+        if (client is null || !client.Connected)
+        {
+            return false;
+        }
+
+        try
+        {
+            var socket = client.Client;
+            if (socket is null || !socket.Connected)
+            {
+                return false;
+            }
+
+            return !(socket.Poll(0, SelectMode.SelectRead) && socket.Available == 0);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     public static (string Host, int Port) ParseEndpoint(string endpoint)

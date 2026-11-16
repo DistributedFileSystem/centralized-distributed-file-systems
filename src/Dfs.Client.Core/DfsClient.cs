@@ -627,7 +627,17 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
 
             if (rawFrame.Type == MessageType.Error)
             {
-                var error = FrameSerialization.DeserializeJson<ErrorResponse>(rawFrame.Payload);
+                ErrorResponse error;
+                try
+                {
+                    error = FrameSerialization.DeserializeJson<ErrorResponse>(rawFrame.Payload);
+                }
+                catch
+                {
+                    DisconnectInternal();
+                    throw;
+                }
+
                 if (requiresSession && error.Code == ErrorCode.Unauthorized)
                 {
                     ClearSession(expired: true);

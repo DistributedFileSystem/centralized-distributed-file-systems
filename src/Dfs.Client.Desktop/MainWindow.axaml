@@ -83,9 +83,10 @@
                                 FontSize="13"
                                 FontWeight="SemiBold" />
 
+                        <!-- Bảng quản trị thuộc phạm vi PR #31, ẩn ở PR #29 để giao diện tập trung Transfer Manager -->
                         <Button Content="🛡️  Bảng quản trị"
                                 Command="{Binding NavigateAdminCommand}"
-                                IsVisible="{Binding IsAdmin}"
+                                IsVisible="False"
                                 HorizontalAlignment="Stretch"
                                 HorizontalContentAlignment="Left"
                                 Padding="16,10"

@@ -320,7 +320,8 @@ public sealed class MetadataServerHost : IAsyncDisposable
             var reader = new Utf8JsonReader(payload);
             using var doc = JsonDocument.ParseValue(ref reader);
             if (doc.RootElement.ValueKind == JsonValueKind.Object &&
-                doc.RootElement.TryGetProperty("requestId", out var prop) &&
+                (doc.RootElement.TryGetProperty("requestId", out var prop) ||
+                 doc.RootElement.TryGetProperty("RequestId", out prop)) &&
                 prop.ValueKind == JsonValueKind.String &&
                 prop.GetString() is { } id)
             {

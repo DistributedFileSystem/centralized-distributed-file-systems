@@ -234,14 +234,9 @@ public sealed class NamespaceHandler
 
     private async Task<string> ResolveUserAsync(string? requestId, string? session, CancellationToken cancellationToken)
     {
-        if (requestId is null)
+        if (string.IsNullOrWhiteSpace(requestId))
         {
-            throw new DfsException(ErrorCode.BadRequest, "Missing requestId.");
-        }
-
-        if (session is null)
-        {
-            throw new DfsException(ErrorCode.BadRequest, "Missing session.");
+            throw new DfsException(ErrorCode.BadRequest, "RequestId is required.");
         }
 
         if (string.IsNullOrWhiteSpace(session))
@@ -250,22 +245,18 @@ public sealed class NamespaceHandler
         }
 
         var record = await _store.FindSessionAsync(session, cancellationToken).ConfigureAwait(false);
-        if (record is not null)
-        {
-            if (record.ExpiresAt <= DateTime.UtcNow)
-            {
-                throw new DfsException(ErrorCode.Unauthorized, "Session has expired.");
-            }
-
-            return record.UserId;
-        }
-
-        if (_authorizer is not null)
+        if (record is null || record.ExpiresAt <= DateTime.UtcNow)
         {
             throw new DfsException(ErrorCode.Unauthorized, "Invalid or expired session.");
         }
 
-        return DefaultUserId;
+        var user = await _store.FindUserByIdAsync(record.UserId, cancellationToken).ConfigureAwait(false);
+        if (user is null || user.Disabled)
+        {
+            throw new DfsException(ErrorCode.Unauthorized, "User does not exist or has been disabled.");
+        }
+
+        return record.UserId;
     }
 
     private async Task<ItemInfo> FindRequiredItemAsync(string path, CancellationToken cancellationToken) =>

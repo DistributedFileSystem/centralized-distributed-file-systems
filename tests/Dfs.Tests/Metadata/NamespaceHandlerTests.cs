@@ -2,6 +2,7 @@ using System.Net.Sockets;
 using Dfs.MetadataServer.Config;
 using Dfs.MetadataServer.Handlers;
 using Dfs.MetadataServer.Hosting;
+using Dfs.MetadataServer.Security;
 using Dfs.MetadataServer.Store;
 using Dfs.Shared.Commands;
 using Dfs.Shared.Framing;
@@ -64,6 +65,18 @@ public sealed class NamespaceHandlerTests : IDisposable
         return host;
     }
 
+    private async Task<MetadataServerHost> CreateAndStartHostAsync(IMetadataStore? store = null, IAuthorizer? authorizer = null, string? dataDir = null)
+    {
+        var host = CreateHost(store, authorizer, dataDir);
+        await host.StartAsync();
+        var admin = await host.Store.FindUserByNameAsync(host.Config.AdminUser);
+        if (admin is not null)
+        {
+            await host.Store.SubmitAsync(new CreateSession(Session, admin.Id, DateTime.UtcNow.AddDays(1), DateTime.UtcNow));
+        }
+        return host;
+    }
+
     private static async Task<(TcpClient Client, NetworkStream Stream)> ConnectAndHelloAsync(MetadataServerHost host)
     {
         var client = new TcpClient();
@@ -119,8 +132,7 @@ public sealed class NamespaceHandlerTests : IDisposable
     [Fact]
     public async Task TcpRoundTrip_CreateFolderStatListDirRenameMoveDeleteItem_Succeeds()
     {
-        var host = CreateHost();
-        await host.StartAsync();
+        var host = await CreateAndStartHostAsync();
 
         var (client, stream) = await ConnectAndHelloAsync(host);
         await using var _ = stream;
@@ -199,8 +211,7 @@ public sealed class NamespaceHandlerTests : IDisposable
         Directory.CreateDirectory(dataDir);
         SeedFile(dataDir, "file-1", "root", "notes.txt");
 
-        var host = CreateHost(dataDir: dataDir);
-        await host.StartAsync();
+        var host = await CreateAndStartHostAsync(dataDir: dataDir);
 
         var (client, stream) = await ConnectAndHelloAsync(host);
         await using var _ = stream;
@@ -293,8 +304,11 @@ public sealed class NamespaceHandlerTests : IDisposable
         Directory.CreateDirectory(dataDir);
         using var innerStore = new MetadataStore(Path.Combine(dataDir, "oplog.jsonl"), Path.Combine(dataDir, "metadata.db"));
         var store = new SessionStubStore(innerStore);
+        store.Users["u-alice"] = new UserCredentials("u-alice", "alice", "hash", "salt", Disabled: false);
+        store.Users["u-disabled"] = new UserCredentials("u-disabled", "disabled-user", "hash", "salt", Disabled: true);
         store.Sessions["tok-alice"] = new SessionRecord("tok-alice", "u-alice", DateTime.UtcNow.AddHours(1));
         store.Sessions["tok-expired"] = new SessionRecord("tok-expired", "u-alice", DateTime.UtcNow.AddMinutes(-5));
+        store.Sessions["tok-disabled"] = new SessionRecord("tok-disabled", "u-disabled", DateTime.UtcNow.AddHours(1));
 
         var authorizer = new RecordingAuthorizer { Allow = true };
         var host = CreateHost(store: store, authorizer: authorizer, dataDir: dataDir);
@@ -311,21 +325,54 @@ public sealed class NamespaceHandlerTests : IDisposable
         Assert.Equal("u-alice", created.Item.OwnerId);
         Assert.Contains(("u-alice", Permission.ItemCreate, (string?)null), authorizer.Calls);
 
-        // Unknown session rejected as Unauthorized when authorizer is configured.
+        // Unknown session rejected as Unauthorized.
         Assert.Equal(ErrorCode.Unauthorized, (await RequestExpectErrorAsync(
             stream, MessageType.Stat, new Stat("auth-2", "unknown-tok", "/alice-docs"))).Code);
 
-        // Expired or empty session rejected as Unauthorized.
+        // Expired, disabled user, empty, or whitespace session rejected as Unauthorized.
         Assert.Equal(ErrorCode.Unauthorized, (await RequestExpectErrorAsync(
             stream, MessageType.Stat, new Stat("auth-3", "tok-expired", "/alice-docs"))).Code);
         Assert.Equal(ErrorCode.Unauthorized, (await RequestExpectErrorAsync(
+            stream, MessageType.Stat, new Stat("auth-dis", "tok-disabled", "/alice-docs"))).Code);
+        Assert.Equal(ErrorCode.Unauthorized, (await RequestExpectErrorAsync(
             stream, MessageType.Stat, new Stat("auth-4", "", "/alice-docs"))).Code);
+        Assert.Equal(ErrorCode.Unauthorized, (await RequestExpectErrorAsync(
+            stream, MessageType.Stat, new Stat("auth-spc", "   ", "/alice-docs"))).Code);
+
+        // Whitespace or empty requestId rejected as BadRequest.
+        Assert.Equal(ErrorCode.BadRequest, (await RequestExpectErrorAsync(
+            stream, MessageType.Stat, new Stat("", "tok-alice", "/alice-docs"))).Code);
+        Assert.Equal(ErrorCode.BadRequest, (await RequestExpectErrorAsync(
+            stream, MessageType.Stat, new Stat("   ", "tok-alice", "/alice-docs"))).Code);
 
         // Denied authorization rejected as Forbidden.
         authorizer.Allow = false;
         var forbidden = await RequestExpectErrorAsync(
             stream, MessageType.DeleteItem, new DeleteItem("auth-5", "tok-alice", "/alice-docs"));
         Assert.Equal(ErrorCode.Forbidden, forbidden.Code);
+    }
+
+    [Fact]
+    public async Task WithoutAuthorizer_StillEnforcesAuthentication_AndRejectsInvalidSession()
+    {
+        var dataDir = Path.Combine(_tempDir, "no-authorizer");
+        Directory.CreateDirectory(dataDir);
+        var host = CreateHost(dataDir: dataDir);
+        await host.StartAsync();
+
+        var (client, stream) = await ConnectAndHelloAsync(host);
+        await using var _ = stream;
+        using var __ = client;
+
+        // Unknown session rejected as Unauthorized even when authorizer is null (no bypass!)
+        var errFake = await RequestExpectErrorAsync(
+            stream, MessageType.Stat, new Stat("noauth-1", "fake-token", "/"));
+        Assert.Equal(ErrorCode.Unauthorized, errFake.Code);
+
+        // Empty session rejected as Unauthorized
+        var errEmpty = await RequestExpectErrorAsync(
+            stream, MessageType.Stat, new Stat("noauth-2", "", "/"));
+        Assert.Equal(ErrorCode.Unauthorized, errEmpty.Code);
     }
 
     private sealed class RecordingAuthorizer : IAuthorizer
@@ -343,6 +390,7 @@ public sealed class NamespaceHandlerTests : IDisposable
     private sealed class SessionStubStore(IMetadataStore inner) : IMetadataStore
     {
         public Dictionary<string, SessionRecord> Sessions { get; } = new(StringComparer.Ordinal);
+        public Dictionary<string, UserCredentials> Users { get; } = new(StringComparer.Ordinal);
 
         public Task<CommandResult> SubmitAsync(IMetadataCommand command, CancellationToken cancellationToken = default) =>
             inner.SubmitAsync(command, cancellationToken);
@@ -369,7 +417,9 @@ public sealed class NamespaceHandlerTests : IDisposable
             inner.FindUserByNameAsync(username, cancellationToken);
 
         public Task<UserCredentials?> FindUserByIdAsync(string userId, CancellationToken cancellationToken = default) =>
-            inner.FindUserByIdAsync(userId, cancellationToken);
+            Users.TryGetValue(userId, out var user)
+                ? Task.FromResult<UserCredentials?>(user)
+                : inner.FindUserByIdAsync(userId, cancellationToken);
 
         public Task<IReadOnlyList<UserInfo>> ListUsersAsync(CancellationToken cancellationToken = default) =>
             inner.ListUsersAsync(cancellationToken);

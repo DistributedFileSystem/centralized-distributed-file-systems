@@ -52,12 +52,6 @@ public sealed class UserShellViewModel : ViewModelBase
         FileBrowserVm = new FileBrowserViewModel(_client);
         TransferManagerVm = new TransferManagerViewModel(_client);
 
-        FileBrowserVm.DownloadRequested = item =>
-        {
-            var size = item.Raw.Size > 0 ? item.Raw.Size : 2 * 1024 * 1024;
-            TransferManagerVm.QueueNewDownload(item.Path, item.Name, size);
-        };
-
         _currentPage = FileBrowserVm;
 
         NavigateFilesCommand = new RelayCommand(async () =>
@@ -78,4 +72,3 @@ public sealed class UserShellViewModel : ViewModelBase
         _ = FileBrowserVm.LoadDirectoryAsync("/projects");
     }
 }
-

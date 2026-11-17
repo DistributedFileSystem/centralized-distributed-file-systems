@@ -68,6 +68,7 @@ public sealed class MetadataServerHost : IAsyncDisposable
             throw new InvalidOperationException("MetadataServerHost is already running.");
         }
 
+        await new BuiltInRoleSeeder(Store).SeedAsync(cancellationToken).ConfigureAwait(false);
         await _sessions.BootstrapAdminAsync(Config.AdminUser, Config.AdminPassword, cancellationToken)
             .ConfigureAwait(false);
 

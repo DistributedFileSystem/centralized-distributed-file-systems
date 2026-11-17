@@ -23,8 +23,12 @@ internal sealed class OpLog
         ["CreateFolder"] = typeof(CreateFolder),
         ["CreateUser"] = typeof(CreateUser),
         ["SetUserDisabled"] = typeof(SetUserDisabled),
+        ["CreateGroup"] = typeof(CreateGroup),
+        ["SetGroupMember"] = typeof(SetGroupMember),
         ["CreateRole"] = typeof(CreateRole),
+        ["UpdateRole"] = typeof(UpdateRole),
         ["SetGrant"] = typeof(SetGrant),
+        ["RevokeGrant"] = typeof(RevokeGrant),
         ["CreateSession"] = typeof(CreateSession),
         ["DeleteSession"] = typeof(DeleteSession),
     };

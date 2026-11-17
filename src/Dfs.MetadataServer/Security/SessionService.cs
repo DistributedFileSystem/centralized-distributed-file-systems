@@ -70,7 +70,13 @@ public sealed class SessionService(IMetadataStore store, TimeProvider? timeProvi
         if (!result.Success)
             throw new DfsException(result.Error ?? ErrorCode.BadRequest, result.Message ?? "Session could not be created.");
 
-        var grants = await store.ListGrantsAsync(null, user.Id, true, cancellationToken);
+        var groups = await store.ListGroupsAsync(cancellationToken);
+        var groupIds = groups.Where(group => group.MemberIds.Contains(user.Id))
+            .Select(group => group.Id).ToHashSet(StringComparer.Ordinal);
+        var grants = (await store.ListGrantsAsync(null, null, true, cancellationToken))
+            .Where(grant => grant.SubjectType == SubjectType.User && grant.SubjectId == user.Id ||
+                            grant.SubjectType == SubjectType.Group && groupIds.Contains(grant.SubjectId))
+            .ToArray();
         var roles = await store.ListRolesAsync(cancellationToken);
         var grantedRoles = roles.Where(r => grants.Any(g => g.RoleId == r.Id)).ToArray();
         return new LoginResponse(request.RequestId, token, expiry, new UserRef(user.Id, user.Username),

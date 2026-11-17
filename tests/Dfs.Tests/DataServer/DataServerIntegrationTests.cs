@@ -52,7 +52,7 @@ public sealed class DataServerIntegrationTests : IAsyncDisposable
         await _metaHost.StartAsync();
 
         // 2. Start DataServer
-        var dataConfig = new DataServerConfig(
+        var initialConfig = new DataServerConfig(
             NodeRole: "data",
             NodeId: "ds-integ-1",
             ListenPort: 0,
@@ -62,11 +62,12 @@ public sealed class DataServerIntegrationTests : IAsyncDisposable
             TokenKey: SharedTokenKey,
             CapacityBytes: 50L * 1024 * 1024 * 1024);
 
-        _dataHost = new DataServerHost(dataConfig, _dataStorage);
+        _dataHost = new DataServerHost(initialConfig, _dataStorage);
         await _dataHost.StartAsync();
 
-        // 3. Start HeartbeatClient
-        _heartbeatClient = new HeartbeatClient(dataConfig, _dataStorage, reconnectDelay: TimeSpan.FromMilliseconds(200));
+        // 3. Start HeartbeatClient with actual bound port
+        var registeredConfig = initialConfig with { ListenPort = _dataHost.BoundPort };
+        _heartbeatClient = new HeartbeatClient(registeredConfig, _dataStorage, reconnectDelay: TimeSpan.FromMilliseconds(100));
         await _heartbeatClient.StartAsync();
 
         // Wait until registered (up to 5 seconds)

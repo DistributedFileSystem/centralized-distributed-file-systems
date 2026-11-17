@@ -186,21 +186,31 @@ public sealed class ChunkStorage : IChunkStorage, IDisposable
     /// <inheritdoc />
     public Task<long> GetFreeBytesAsync(CancellationToken cancellationToken = default)
     {
+        long free;
         try
         {
             var root = Path.GetPathRoot(_dataDir);
             if (!string.IsNullOrEmpty(root))
             {
                 var drive = new DriveInfo(root);
-                return Task.FromResult(drive.AvailableFreeSpace);
+                free = drive.AvailableFreeSpace;
+            }
+            else
+            {
+                free = 80L * 1024 * 1024 * 1024;
             }
         }
         catch
         {
-            // Fallback if DriveInfo is not supported on this platform/path
+            free = 80L * 1024 * 1024 * 1024;
         }
 
-        return Task.FromResult(80L * 1024 * 1024 * 1024);
+        if (_configuredCapacity > 0 && free > _configuredCapacity)
+        {
+            free = _configuredCapacity;
+        }
+
+        return Task.FromResult(free);
     }
 
     /// <inheritdoc />

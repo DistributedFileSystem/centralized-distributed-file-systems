@@ -408,8 +408,6 @@ internal sealed class SqliteMetadataState : IDisposable
             return CommandResult.Fail(ErrorCode.BadRequest, "CapacityBytes cannot be negative.");
         if (c.FreeBytes < 0)
             return CommandResult.Fail(ErrorCode.BadRequest, "FreeBytes cannot be negative.");
-        if (c.CapacityBytes > 0 && c.FreeBytes > c.CapacityBytes)
-            return CommandResult.Fail(ErrorCode.BadRequest, "FreeBytes cannot exceed CapacityBytes.");
         return null;
     }
 

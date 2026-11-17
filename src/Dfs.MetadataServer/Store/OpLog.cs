@@ -33,6 +33,8 @@ internal sealed class OpLog
         ["SetGrant"] = typeof(SetGrant),
         ["CreateSession"] = typeof(CreateSession),
         ["DeleteSession"] = typeof(DeleteSession),
+        ["RegisterDataServer"] = typeof(RegisterDataServer),
+        ["UpdateHeartbeat"] = typeof(UpdateHeartbeat),
     };
 
     private readonly string _path;

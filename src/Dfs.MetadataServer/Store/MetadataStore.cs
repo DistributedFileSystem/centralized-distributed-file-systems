@@ -94,7 +94,20 @@ public sealed class MetadataStore : IMetadataStore, IDisposable
 
     /// <inheritdoc />
     public Task<IReadOnlyList<DataServerInfo>> ListDataServersAsync(CancellationToken cancellationToken = default) =>
-        Task.FromResult<IReadOnlyList<DataServerInfo>>(Array.Empty<DataServerInfo>());
+        Read(() => _state.ListDataServers());
+
+    /// <summary>Marks alive Data Servers as Dead if their last heartbeat was before the cutoff.</summary>
+    public int MarkDeadServers(DateTime cutoff)
+    {
+        lock (_gate)
+        {
+            return _state.MarkDeadServers(cutoff);
+        }
+    }
+
+    /// <summary>Finds a registered Data Server by id.</summary>
+    public Task<DataServerInfo?> FindDataServerByIdAsync(string nodeId, CancellationToken cancellationToken = default) =>
+        Read(() => _state.FindDataServerById(nodeId));
 
     /// <inheritdoc />
     public Task<IReadOnlyList<AuditEntry>> ListAuditAsync(DateTime? from, DateTime? to, string? userId, int limit, CancellationToken cancellationToken = default) =>

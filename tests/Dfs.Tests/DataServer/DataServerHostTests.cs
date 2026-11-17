@@ -291,6 +291,106 @@ public sealed class DataServerHostTests : IAsyncDisposable
         }
     }
 
+    [Fact]
+    public async Task WriteChunk_Error_PreservesOriginalRequestId()
+    {
+        var host = await StartHostAsync();
+        var (client, stream) = await ConnectAndHandshakeAsync(host);
+        using (client)
+        await using (stream)
+        {
+            var chunkId = "c-01HERRREQID";
+            var token = "invalid.token.payload";
+            var data = new byte[] { 1, 2, 3 };
+            var originalRequestId = "req-" + Guid.NewGuid().ToString("D");
+
+            var header = new WriteChunk(originalRequestId, chunkId, token, data.Length);
+            await FrameCodec.WriteChunkFrameAsync(stream, MessageType.WriteChunk, header, data);
+
+            var rawFrame = await FrameCodec.ReadRawFrameAsync(stream);
+            Assert.NotNull(rawFrame);
+            Assert.Equal(MessageType.Error, rawFrame.Type);
+
+            var error = FrameSerialization.DeserializeJson<ErrorResponse>(rawFrame.Payload);
+            Assert.Equal(originalRequestId, error.RequestId);
+            Assert.Equal(ErrorCode.TokenInvalid, error.Code);
+        }
+    }
+
+    [Fact]
+    public async Task DeleteChunk_WithNullChunkIds_ReturnsBadRequest()
+    {
+        var host = await StartHostAsync();
+        var (client, stream) = await ConnectAndHandshakeAsync(host);
+        using (client)
+        await using (stream)
+        {
+            var reqId = Guid.NewGuid().ToString("D");
+            var json = $"{{\"requestId\":\"{reqId}\",\"chunkIds\":null}}";
+            var payload = System.Text.Encoding.UTF8.GetBytes(json);
+            await FrameCodec.WriteRawFrameAsync(stream, MessageType.DeleteChunk, payload);
+
+            var rawFrame = await FrameCodec.ReadRawFrameAsync(stream);
+            Assert.NotNull(rawFrame);
+            Assert.Equal(MessageType.Error, rawFrame.Type);
+
+            var error = FrameSerialization.DeserializeJson<ErrorResponse>(rawFrame.Payload);
+            Assert.Equal(reqId, error.RequestId);
+            Assert.Equal(ErrorCode.BadRequest, error.Code);
+        }
+    }
+
+    [Fact]
+    public async Task WriteChunk_PathTraversal_ReturnsBadRequest()
+    {
+        var host = await StartHostAsync();
+        var (client, stream) = await ConnectAndHandshakeAsync(host);
+        using (client)
+        await using (stream)
+        {
+            var chunkId = "../../evil";
+            var token = _signer.Sign("user-1", chunkId, "w");
+            var data = new byte[] { 1, 2, 3 };
+            var originalRequestId = Guid.NewGuid().ToString("D");
+
+            var header = new WriteChunk(originalRequestId, chunkId, token, data.Length);
+            await FrameCodec.WriteChunkFrameAsync(stream, MessageType.WriteChunk, header, data);
+
+            var rawFrame = await FrameCodec.ReadRawFrameAsync(stream);
+            Assert.NotNull(rawFrame);
+            Assert.Equal(MessageType.Error, rawFrame.Type);
+
+            var error = FrameSerialization.DeserializeJson<ErrorResponse>(rawFrame.Payload);
+            Assert.Equal(originalRequestId, error.RequestId);
+            Assert.Equal(ErrorCode.BadRequest, error.Code);
+        }
+    }
+
+    [Fact]
+    public async Task ReadChunk_PathTraversal_ReturnsBadRequest()
+    {
+        var host = await StartHostAsync();
+        var (client, stream) = await ConnectAndHandshakeAsync(host);
+        using (client)
+        await using (stream)
+        {
+            var chunkId = "../../evil";
+            var token = _signer.Sign("user-1", chunkId, "r");
+            var originalRequestId = Guid.NewGuid().ToString("D");
+
+            var request = new ReadChunk(originalRequestId, chunkId, token);
+            await FrameCodec.WriteMessageAsync(stream, MessageType.ReadChunk, request);
+
+            var rawFrame = await FrameCodec.ReadRawFrameAsync(stream);
+            Assert.NotNull(rawFrame);
+            Assert.Equal(MessageType.Error, rawFrame.Type);
+
+            var error = FrameSerialization.DeserializeJson<ErrorResponse>(rawFrame.Payload);
+            Assert.Equal(originalRequestId, error.RequestId);
+            Assert.Equal(ErrorCode.BadRequest, error.Code);
+        }
+    }
+
     public async ValueTask DisposeAsync()
     {
         if (_host is not null)

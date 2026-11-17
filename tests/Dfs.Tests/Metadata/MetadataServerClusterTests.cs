@@ -209,6 +209,45 @@ public sealed class MetadataServerClusterTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task HeartbeatMonitor_HandlesSubsecondTimestamp_Accurately()
+    {
+        var subsecondTime = new TestTimeProvider(new DateTimeOffset(2026, 11, 17, 12, 0, 0, 900, TimeSpan.Zero));
+        var host = new MetadataServerHost(_config, _store, authorizer: null, timeProvider: subsecondTime);
+        _host = host;
+        await host.StartAsync();
+
+        var (client, stream) = await ConnectAndHandshakeAsync(host);
+        using (client)
+        await using (stream)
+        {
+            var reg = new Register(Guid.NewGuid().ToString("D"), "ds-sub", "127.0.0.1:7002", 2000, 1500);
+            await FrameCodec.WriteMessageAsync(stream, MessageType.Register, reg);
+            await FrameCodec.ReadMessageAsync<RegisterResponse>(stream, MessageType.RegisterResponse);
+
+            var servers = await host.Store.ListDataServersAsync();
+            Assert.Equal(DataServerStatus.Alive, servers[0].Status);
+
+            // Advance 8.1 seconds -> now at 12:00:09.000Z.
+            // With string comparison in SQLite, "12:00:00.9Z" < "12:00:09Z" was wrongly evaluated to true because '.' < 'Z'.
+            // With DateTime comparison in C#, 8.1s < 9s, so server must remain Alive.
+            subsecondTime.Advance(TimeSpan.FromMilliseconds(8100));
+            var deadCount = host.CheckDeadServers();
+            Assert.Equal(0, deadCount);
+
+            servers = await host.Store.ListDataServersAsync();
+            Assert.Equal(DataServerStatus.Alive, servers[0].Status);
+
+            // Advance another 1.0 second -> total 9.1s elapsed (> 9s cutoff) -> transitions to Dead.
+            subsecondTime.Advance(TimeSpan.FromSeconds(1));
+            deadCount = host.CheckDeadServers();
+            Assert.Equal(1, deadCount);
+
+            servers = await host.Store.ListDataServersAsync();
+            Assert.Equal(DataServerStatus.Dead, servers[0].Status);
+        }
+    }
+
+    [Fact]
     public async Task ClusterStatus_ReturnsAllRegisteredDataServers_WhenAuthenticated()
     {
         var host = await StartHostAsync();

@@ -217,10 +217,39 @@ internal sealed class SqliteMetadataState : IDisposable
 
     public int MarkDeadServers(DateTime cutoff)
     {
-        using var cmd = Command(
-            "UPDATE data_servers SET status = 'Dead' WHERE status = 'Alive' AND last_heartbeat < $cutoff",
-            ("$cutoff", Format(cutoff)));
-        return cmd.ExecuteNonQuery();
+        var utcCutoff = cutoff.ToUniversalTime();
+        var deadIds = new List<string>();
+        using (var selectCmd = Command("SELECT id, last_heartbeat FROM data_servers WHERE status = 'Alive'"))
+        using (var reader = selectCmd.ExecuteReader())
+        {
+            while (reader.Read())
+            {
+                var id = reader.GetString(0);
+                var lastHeartbeat = Parse(reader.GetString(1));
+                if (lastHeartbeat < utcCutoff)
+                {
+                    deadIds.Add(id);
+                }
+            }
+        }
+
+        if (deadIds.Count == 0) return 0;
+
+        using var tx = _db.BeginTransaction();
+        using var updateCmd = _db.CreateCommand();
+        updateCmd.Transaction = tx;
+        updateCmd.CommandText = "UPDATE data_servers SET status = 'Dead' WHERE id = $id";
+        var idParam = updateCmd.Parameters.Add("$id", SqliteType.Text);
+
+        var count = 0;
+        foreach (var id in deadIds)
+        {
+            idParam.Value = id;
+            count += updateCmd.ExecuteNonQuery();
+        }
+
+        tx.Commit();
+        return count;
     }
 
     public IReadOnlyList<DataServerInfo> ListDataServers()

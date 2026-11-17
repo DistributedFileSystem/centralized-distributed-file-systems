@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
@@ -235,6 +236,7 @@ public sealed class DataServerHost : IAsyncDisposable
 
     private async Task DispatchFrameAsync(Stream stream, RawFrame frame, CancellationToken cancellationToken)
     {
+        string? currentRequestId = null;
         try
         {
             switch (frame.Type)
@@ -243,6 +245,7 @@ public sealed class DataServerHost : IAsyncDisposable
                 {
                     var chunkFrame = FrameCodec.DecodeChunkPayload<WriteChunk>(frame.Payload);
                     var header = chunkFrame.Header;
+                    currentRequestId = header.RequestId;
 
                     if (string.IsNullOrWhiteSpace(header.RequestId))
                         throw new DfsException(ErrorCode.BadRequest, "RequestId must not be empty.");
@@ -264,6 +267,7 @@ public sealed class DataServerHost : IAsyncDisposable
                 case MessageType.ReadChunk:
                 {
                     var request = FrameSerialization.DeserializeJson<ReadChunk>(frame.Payload);
+                    currentRequestId = request.RequestId;
                     if (string.IsNullOrWhiteSpace(request.RequestId))
                         throw new DfsException(ErrorCode.BadRequest, "RequestId must not be empty.");
                     if (string.IsNullOrWhiteSpace(request.ChunkId))
@@ -280,8 +284,11 @@ public sealed class DataServerHost : IAsyncDisposable
                 case MessageType.DeleteChunk:
                 {
                     var request = FrameSerialization.DeserializeJson<DeleteChunk>(frame.Payload);
+                    currentRequestId = request.RequestId;
                     if (string.IsNullOrWhiteSpace(request.RequestId))
                         throw new DfsException(ErrorCode.BadRequest, "RequestId must not be empty.");
+                    if (request.ChunkIds is null)
+                        throw new DfsException(ErrorCode.BadRequest, "ChunkIds must not be null.");
 
                     var deleted = await _storage.DeleteChunksAsync(request.ChunkIds, cancellationToken).ConfigureAwait(false);
                     var response = new DeleteChunkResponse(request.RequestId, deleted);
@@ -295,11 +302,13 @@ public sealed class DataServerHost : IAsyncDisposable
         }
         catch (DfsException ex)
         {
-            await WriteErrorAsync(stream, ExtractRequestId(frame.Payload), ex.Code, ex.Message, ex.Details, cancellationToken).ConfigureAwait(false);
+            var reqId = !string.IsNullOrWhiteSpace(currentRequestId) ? currentRequestId : ExtractRequestId(frame);
+            await WriteErrorAsync(stream, reqId, ex.Code, ex.Message, ex.Details, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception) when (!cancellationToken.IsCancellationRequested)
         {
-            await WriteErrorAsync(stream, ExtractRequestId(frame.Payload), ErrorCode.Internal, "Internal server error.", null, cancellationToken).ConfigureAwait(false);
+            var reqId = !string.IsNullOrWhiteSpace(currentRequestId) ? currentRequestId : ExtractRequestId(frame);
+            await WriteErrorAsync(stream, reqId, ErrorCode.Internal, "Internal server error.", null, cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -318,8 +327,23 @@ public sealed class DataServerHost : IAsyncDisposable
         return FrameCodec.WriteMessageAsync(stream, MessageType.Error, error, cancellationToken);
     }
 
-    private static string ExtractRequestId(ReadOnlySpan<byte> payload)
+    private static string ExtractRequestId(RawFrame frame)
     {
+        var payload = frame.Payload.AsSpan();
+        if (frame.Type == MessageType.WriteChunk)
+        {
+            if (payload.Length < 4)
+            {
+                return Guid.NewGuid().ToString("D");
+            }
+            var headerLength = BinaryPrimitives.ReadInt32BigEndian(payload[..4]);
+            if (headerLength <= 0 || payload.Length < 4 + headerLength)
+            {
+                return Guid.NewGuid().ToString("D");
+            }
+            payload = payload.Slice(4, headerLength);
+        }
+
         try
         {
             var reader = new Utf8JsonReader(payload);

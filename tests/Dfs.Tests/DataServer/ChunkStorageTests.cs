@@ -138,4 +138,60 @@ public sealed class ChunkStorageTests : IDisposable
         Assert.True(capacity > 0);
         Assert.True(free > 0);
     }
+
+    [Theory]
+    [InlineData("../../evil")]
+    [InlineData("../evil")]
+    [InlineData("..\\evil")]
+    [InlineData("/root/chunk")]
+    [InlineData("\\windows\\chunk")]
+    [InlineData("chunk/sub")]
+    [InlineData("chunk\\sub")]
+    [InlineData("chunk with spaces")]
+    [InlineData("chunk$special")]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task ChunkOperations_RejectInvalidOrPathTraversalChunkId(string invalidChunkId)
+    {
+        var exWrite = await Assert.ThrowsAsync<DfsException>(() => _storage.WriteChunkAsync(invalidChunkId, new byte[] { 1 }));
+        Assert.Equal(ErrorCode.BadRequest, exWrite.Code);
+
+        var exRead = await Assert.ThrowsAsync<DfsException>(() => _storage.ReadChunkAsync(invalidChunkId));
+        Assert.Equal(ErrorCode.BadRequest, exRead.Code);
+
+        var exDel = await Assert.ThrowsAsync<DfsException>(() => _storage.DeleteChunksAsync([invalidChunkId]));
+        Assert.Equal(ErrorCode.BadRequest, exDel.Code);
+    }
+
+    [Fact]
+    public async Task DeleteChunks_NullArgument_ThrowsBadRequest()
+    {
+        var ex = await Assert.ThrowsAsync<DfsException>(() => _storage.DeleteChunksAsync(null!));
+        Assert.Equal(ErrorCode.BadRequest, ex.Code);
+    }
+
+    [Fact]
+    public void Startup_CleansUpOrphanedTempFiles()
+    {
+        var customTempDir = Path.Combine(Path.GetTempPath(), "dfs-orphan-test-" + Guid.NewGuid().ToString("N"));
+        var chunksDir = Path.Combine(customTempDir, "chunks", "c-");
+        Directory.CreateDirectory(chunksDir);
+
+        var orphanFile = Path.Combine(chunksDir, "c-orphaned.tmp.deadbeef");
+        File.WriteAllBytes(orphanFile, new byte[] { 1, 2, 3 });
+        Assert.True(File.Exists(orphanFile));
+
+        using (var storage = new ChunkStorage(customTempDir))
+        {
+            Assert.False(File.Exists(orphanFile));
+        }
+
+        try
+        {
+            Directory.Delete(customTempDir, recursive: true);
+        }
+        catch
+        {
+        }
+    }
 }

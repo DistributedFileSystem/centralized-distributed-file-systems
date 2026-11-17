@@ -106,7 +106,9 @@ public static class MetadataSchema
           id TEXT PRIMARY KEY,
           address TEXT NOT NULL,
           status TEXT NOT NULL,
-          free_bytes INTEGER NOT NULL,
+          capacity_bytes INTEGER NOT NULL DEFAULT 0,
+          free_bytes INTEGER NOT NULL DEFAULT 0,
+          chunk_count INTEGER NOT NULL DEFAULT 0,
           last_heartbeat TEXT NOT NULL
         );
 

@@ -6,6 +6,7 @@ using Dfs.MetadataServer.Config;
 using Dfs.MetadataServer.Handlers;
 using Dfs.MetadataServer.Security;
 using Dfs.MetadataServer.Store;
+using Dfs.Shared.Commands;
 using Dfs.Shared.Framing;
 using Dfs.Shared.Messages;
 using Dfs.Shared.Metadata;
@@ -22,10 +23,13 @@ public sealed class MetadataServerHost : IAsyncDisposable
     private readonly bool _ownsStore;
     private readonly NamespaceHandler _namespaceHandler;
     private readonly SessionService _sessions;
+    private readonly IAuthorizer? _authorizer;
+    private readonly TimeProvider _timeProvider;
     private readonly ConcurrentDictionary<Task, bool> _activeConnections = new();
     private TcpListener? _listener;
     private CancellationTokenSource? _cts;
     private Task? _acceptLoopTask;
+    private Task? _heartbeatMonitorTask;
 
     /// <summary>Server configuration.</summary>
     public MetadataServerConfig Config { get; }
@@ -45,9 +49,12 @@ public sealed class MetadataServerHost : IAsyncDisposable
     /// <param name="config">The configuration parameters.</param>
     /// <param name="store">Optional existing store instance; if null, creates a default MetadataStore.</param>
     /// <param name="authorizer">Optional authorizer used to enforce RBAC permissions on incoming requests.</param>
-    public MetadataServerHost(MetadataServerConfig config, IMetadataStore? store = null, IAuthorizer? authorizer = null)
+    /// <param name="timeProvider">Optional time provider used for timestamps and heartbeat monitoring.</param>
+    public MetadataServerHost(MetadataServerConfig config, IMetadataStore? store = null, IAuthorizer? authorizer = null, TimeProvider? timeProvider = null)
     {
         Config = config;
+        _authorizer = authorizer;
+        _timeProvider = timeProvider ?? TimeProvider.System;
         if (store is not null)
         {
             Store = store;
@@ -61,7 +68,7 @@ public sealed class MetadataServerHost : IAsyncDisposable
         }
 
         _namespaceHandler = new NamespaceHandler(Store, authorizer);
-        _sessions = new SessionService(Store);
+        _sessions = new SessionService(Store, _timeProvider);
     }
 
     /// <summary>
@@ -85,6 +92,7 @@ public sealed class MetadataServerHost : IAsyncDisposable
 
         BoundPort = ((IPEndPoint)_listener.LocalEndpoint).Port;
         _acceptLoopTask = Task.Run(() => AcceptLoopAsync(_cts.Token), CancellationToken.None);
+        _heartbeatMonitorTask = Task.Run(() => HeartbeatMonitorLoopAsync(_cts.Token), CancellationToken.None);
 
     }
 
@@ -149,6 +157,18 @@ public sealed class MetadataServerHost : IAsyncDisposable
             }
         }
 
+        if (_heartbeatMonitorTask is not null)
+        {
+            try
+            {
+                await _heartbeatMonitorTask.ConfigureAwait(false);
+            }
+            catch (Exception)
+            {
+                // Ignore monitor loop shutdown errors
+            }
+        }
+
         var activeTasks = _activeConnections.Keys.ToArray();
         if (activeTasks.Length > 0)
         {
@@ -164,6 +184,41 @@ public sealed class MetadataServerHost : IAsyncDisposable
 
         _listener = null;
         _acceptLoopTask = null;
+        _heartbeatMonitorTask = null;
+    }
+
+    /// <summary>
+    /// Checks for and transitions any alive data servers that missed heartbeats for over 9 seconds to Dead.
+    /// </summary>
+    /// <returns>The number of data servers marked Dead.</returns>
+    public int CheckDeadServers()
+    {
+        var cutoff = _timeProvider.GetUtcNow().UtcDateTime - TimeSpan.FromSeconds(9);
+        if (Store is MetadataStore concreteStore)
+        {
+            return concreteStore.MarkDeadServers(cutoff);
+        }
+        return 0;
+    }
+
+    private async Task HeartbeatMonitorLoopAsync(CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(1), _timeProvider, cancellationToken).ConfigureAwait(false);
+                CheckDeadServers();
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+            catch (Exception)
+            {
+                // Keep monitor loop alive
+            }
+        }
     }
 
     private async Task AcceptLoopAsync(CancellationToken cancellationToken)
@@ -274,6 +329,72 @@ public sealed class MetadataServerHost : IAsyncDisposable
                     var request = FrameSerialization.DeserializeJson<Logout>(frame.Payload);
                     var response = await _sessions.LogoutAsync(request, cancellationToken).ConfigureAwait(false);
                     await FrameCodec.WriteMessageAsync(stream, MessageType.LogoutResponse, response, cancellationToken).ConfigureAwait(false);
+                    return;
+                }
+                case MessageType.Register:
+                {
+                    var request = FrameSerialization.DeserializeJson<Register>(frame.Payload);
+                    if (string.IsNullOrWhiteSpace(request.RequestId))
+                        throw new DfsException(ErrorCode.BadRequest, "RequestId must not be empty.");
+                    if (string.IsNullOrWhiteSpace(request.NodeId))
+                        throw new DfsException(ErrorCode.BadRequest, "NodeId must not be empty.");
+                    if (string.IsNullOrWhiteSpace(request.Address))
+                        throw new DfsException(ErrorCode.BadRequest, "Address must not be empty.");
+
+                    var command = new RegisterDataServer(
+                        request.NodeId,
+                        request.Address,
+                        request.CapacityBytes,
+                        request.FreeBytes,
+                        _timeProvider.GetUtcNow().UtcDateTime);
+
+                    var result = await Store.SubmitAsync(command, cancellationToken).ConfigureAwait(false);
+                    if (!result.Success)
+                        throw new DfsException(result.Error ?? ErrorCode.Internal, result.Message ?? "Failed to register data server.", result.Details);
+
+                    var response = new RegisterResponse(request.RequestId, HeartbeatIntervalSeconds: 3);
+                    await FrameCodec.WriteMessageAsync(stream, MessageType.RegisterResponse, response, cancellationToken).ConfigureAwait(false);
+                    return;
+                }
+                case MessageType.Heartbeat:
+                {
+                    var request = FrameSerialization.DeserializeJson<Heartbeat>(frame.Payload);
+                    if (string.IsNullOrWhiteSpace(request.RequestId))
+                        throw new DfsException(ErrorCode.BadRequest, "RequestId must not be empty.");
+                    if (string.IsNullOrWhiteSpace(request.NodeId))
+                        throw new DfsException(ErrorCode.BadRequest, "NodeId must not be empty.");
+
+                    var command = new UpdateHeartbeat(
+                        request.NodeId,
+                        request.FreeBytes,
+                        request.ChunkCount,
+                        _timeProvider.GetUtcNow().UtcDateTime);
+
+                    var result = await Store.SubmitAsync(command, cancellationToken).ConfigureAwait(false);
+                    if (!result.Success)
+                        throw new DfsException(result.Error ?? ErrorCode.Internal, result.Message ?? "Heartbeat rejected.", result.Details);
+
+                    var response = new HeartbeatResponse(request.RequestId);
+                    await FrameCodec.WriteMessageAsync(stream, MessageType.HeartbeatResponse, response, cancellationToken).ConfigureAwait(false);
+                    return;
+                }
+                case MessageType.ClusterStatus:
+                {
+                    var request = FrameSerialization.DeserializeJson<ClusterStatus>(frame.Payload);
+                    if (string.IsNullOrWhiteSpace(request.RequestId))
+                        throw new DfsException(ErrorCode.BadRequest, "RequestId must not be empty.");
+
+                    var user = await _sessions.RequireActiveUserAsync(request.Session, cancellationToken).ConfigureAwait(false);
+                    if (_authorizer is not null)
+                    {
+                        var auth = await _authorizer.AuthorizeAsync(user.Id, Permission.ClusterView, null, cancellationToken).ConfigureAwait(false);
+                        if (!auth.Allowed)
+                            throw new DfsException(ErrorCode.Forbidden, "Forbidden: requires cluster.view permission.");
+                    }
+
+                    var servers = await Store.ListDataServersAsync(cancellationToken).ConfigureAwait(false);
+                    var response = new ClusterStatusResponse(request.RequestId, new ValueList<DataServerInfo>(servers));
+                    await FrameCodec.WriteMessageAsync(stream, MessageType.ClusterStatusResponse, response, cancellationToken).ConfigureAwait(false);
                     return;
                 }
                 default:

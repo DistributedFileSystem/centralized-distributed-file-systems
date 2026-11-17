@@ -323,7 +323,7 @@ public sealed class NamespaceHandlerTests : IDisposable
             stream, MessageType.CreateFolder, MessageType.CreateFolderResponse,
             new CreateFolder("auth-1", "tok-alice", "/alice-docs"));
         Assert.Equal("u-alice", created.Item.OwnerId);
-        Assert.Contains(("u-alice", Permission.ItemCreate, (string?)null), authorizer.Calls);
+        Assert.Contains(("u-alice", Permission.ItemCreate, "root"), authorizer.Calls);
 
         // Unknown session rejected as Unauthorized.
         Assert.Equal(ErrorCode.Unauthorized, (await RequestExpectErrorAsync(
@@ -350,6 +350,61 @@ public sealed class NamespaceHandlerTests : IDisposable
         var forbidden = await RequestExpectErrorAsync(
             stream, MessageType.DeleteItem, new DeleteItem("auth-5", "tok-alice", "/alice-docs"));
         Assert.Equal(ErrorCode.Forbidden, forbidden.Code);
+    }
+
+    [Fact]
+    public async Task DefaultRbacAuthorizer_EnforcesNamespacePermissionsOverTcp()
+    {
+        var host = await CreateAndStartHostAsync();
+        var (client, stream) = await ConnectAndHelloAsync(host);
+        await using var _ = stream;
+        using var __ = client;
+
+        await RequestAsync<CreateFolder, CreateFolderResponse>(stream, MessageType.CreateFolder,
+            MessageType.CreateFolderResponse, new CreateFolder("setup-1", Session, "/shared"));
+        await RequestAsync<CreateFolder, CreateFolderResponse>(stream, MessageType.CreateFolder,
+            MessageType.CreateFolderResponse, new CreateFolder("setup-2", Session, "/shared/docs"));
+        await RequestAsync<CreateFolder, CreateFolderResponse>(stream, MessageType.CreateFolder,
+            MessageType.CreateFolderResponse, new CreateFolder("setup-3", Session, "/private"));
+
+        var shared = (await host.Store.FindItemByPathAsync("/shared"))!;
+        Assert.True((await new UserCredentialService(host.Store).CreateUserAsync(
+            "u-bob", "bob", "password", DateTime.UtcNow)).Success);
+        Assert.True((await host.Store.SubmitAsync(new CreateSession("bob-session", "u-bob",
+            DateTime.UtcNow.AddHours(1), DateTime.UtcNow))).Success);
+        Assert.True((await host.Store.SubmitAsync(new SetGrant("g-bob-viewer", BuiltInRoles.ViewerId,
+            SubjectType.User, "u-bob", shared.Id, DateTime.UtcNow))).Success);
+
+        var root = await RequestAsync<ListDir, ListDirResponse>(stream, MessageType.ListDir,
+            MessageType.ListDirResponse, new ListDir("list-root", "bob-session", "/"));
+        Assert.Equal(new[] { "/shared" }, root.Items.Select(item => item.Path));
+        var child = await RequestAsync<Stat, StatResponse>(stream, MessageType.Stat,
+            MessageType.StatResponse, new Stat("stat-child", "bob-session", "/shared/docs"));
+        Assert.Equal("/shared/docs", child.Item.Path);
+
+        Assert.Equal(ErrorCode.Forbidden, (await RequestExpectErrorAsync(stream, MessageType.Stat,
+            new Stat("deny-stat", "bob-session", "/private"))).Code);
+        Assert.Equal(ErrorCode.Forbidden, (await RequestExpectErrorAsync(stream, MessageType.ListDir,
+            new ListDir("deny-list", "bob-session", "/private"))).Code);
+        Assert.Equal(ErrorCode.Forbidden, (await RequestExpectErrorAsync(stream, MessageType.CreateFolder,
+            new CreateFolder("deny-create", "bob-session", "/shared/new"))).Code);
+        Assert.Equal(ErrorCode.Forbidden, (await RequestExpectErrorAsync(stream, MessageType.CreateFolder,
+            new CreateFolder("deny-root-create", "bob-session", "/new"))).Code);
+        Assert.Equal(ErrorCode.Forbidden, (await RequestExpectErrorAsync(stream, MessageType.Rename,
+            new Rename("deny-rename", "bob-session", "/shared/docs", "renamed"))).Code);
+        Assert.Equal(ErrorCode.Forbidden, (await RequestExpectErrorAsync(stream, MessageType.Move,
+            new Move("deny-move", "bob-session", "/shared/docs", "/private"))).Code);
+        Assert.Equal(ErrorCode.Forbidden, (await RequestExpectErrorAsync(stream, MessageType.DeleteItem,
+            new DeleteItem("deny-delete", "bob-session", "/shared/docs"))).Code);
+
+        Assert.True((await host.Store.SubmitAsync(new SetGrant("g-bob-editor", BuiltInRoles.EditorId,
+            SubjectType.User, "u-bob", shared.Id, DateTime.UtcNow))).Success);
+        Assert.Equal(ErrorCode.Forbidden, (await RequestExpectErrorAsync(stream, MessageType.Move,
+            new Move("deny-move-destination", "bob-session", "/shared/docs", "/"))).Code);
+
+        var created = await RequestAsync<CreateFolder, CreateFolderResponse>(stream, MessageType.CreateFolder,
+            MessageType.CreateFolderResponse, new CreateFolder("allow-create", "bob-session", "/shared/new"));
+        Assert.Equal("u-bob", created.Item.OwnerId);
     }
 
     [Fact]

@@ -27,15 +27,15 @@ public sealed class NamespaceHandler
         DateTime.UnixEpoch);
 
     private readonly IMetadataStore _store;
-    private readonly IAuthorizer? _authorizer;
+    private readonly IAuthorizer _authorizer;
 
     /// <summary>Initializes a new instance of <see cref="NamespaceHandler"/>.</summary>
     /// <param name="store">The metadata store backing all queries and deterministic commands.</param>
-    /// <param name="authorizer">Optional authorizer used to enforce RBAC permissions when configured.</param>
-    public NamespaceHandler(IMetadataStore store, IAuthorizer? authorizer = null)
+    /// <param name="authorizer">Authorizer required for every namespace operation.</param>
+    public NamespaceHandler(IMetadataStore store, IAuthorizer authorizer)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
-        _authorizer = authorizer;
+        _authorizer = authorizer ?? throw new ArgumentNullException(nameof(authorizer));
     }
 
     /// <summary>Returns true when <paramref name="type"/> is a supported namespace message type.</summary>
@@ -105,7 +105,7 @@ public sealed class NamespaceHandler
         string folderId;
         if (segments.Length == 0)
         {
-            await AuthorizeAsync(userId, Permission.ItemList, null, cancellationToken).ConfigureAwait(false);
+            await AuthorizeAsync(userId, Permission.ItemList, SqliteMetadataState.RootId, cancellationToken).ConfigureAwait(false);
             folderId = SqliteMetadataState.RootId;
         }
         else
@@ -120,7 +120,14 @@ public sealed class NamespaceHandler
         }
 
         var children = await _store.ListChildrenAsync(folderId, cancellationToken).ConfigureAwait(false);
-        return new ListDirResponse(request.RequestId, new ValueList<ItemInfo>(children));
+        var visible = new List<ItemInfo>();
+        foreach (var child in children)
+        {
+            var decision = await _authorizer.AuthorizeAsync(userId, Permission.ItemList, child.Id, cancellationToken)
+                .ConfigureAwait(false);
+            if (decision.Allowed) visible.Add(child);
+        }
+        return new ListDirResponse(request.RequestId, new ValueList<ItemInfo>(visible));
     }
 
     /// <summary>Returns metadata for an item path (or the synthetic root item for <c>"/"</c>).</summary>
@@ -134,7 +141,7 @@ public sealed class NamespaceHandler
 
         if (segments.Length == 0)
         {
-            await AuthorizeAsync(userId, Permission.ItemList, null, cancellationToken).ConfigureAwait(false);
+            await AuthorizeAsync(userId, Permission.ItemList, SqliteMetadataState.RootId, cancellationToken).ConfigureAwait(false);
             return new StatResponse(request.RequestId, RootItem);
         }
 
@@ -153,7 +160,7 @@ public sealed class NamespaceHandler
         }
 
         var (parentId, parentAuthId) = await ResolveFolderAsync(parentPath, cancellationToken).ConfigureAwait(false);
-        await AuthorizeAsync(userId, Permission.ItemCreate, parentAuthId, cancellationToken).ConfigureAwait(false);
+        await AuthorizeAsync(userId, Permission.ItemCreate, parentAuthId ?? SqliteMetadataState.RootId, cancellationToken).ConfigureAwait(false);
 
         var itemId = "i-" + Guid.NewGuid().ToString("N");
         var cmd = new CommandCreateFolder(itemId, parentId, name, userId, DateTime.UtcNow);
@@ -205,7 +212,7 @@ public sealed class NamespaceHandler
         var (newParentId, destAuthId) = await ResolveFolderAsync(request.NewParentPath, cancellationToken).ConfigureAwait(false);
 
         await AuthorizeAsync(userId, Permission.ItemRename, item.Id, cancellationToken).ConfigureAwait(false);
-        await AuthorizeAsync(userId, Permission.ItemCreate, destAuthId, cancellationToken).ConfigureAwait(false);
+        await AuthorizeAsync(userId, Permission.ItemCreate, destAuthId ?? SqliteMetadataState.RootId, cancellationToken).ConfigureAwait(false);
 
         var cmd = new MoveItem(item.Id, newParentId, DateTime.UtcNow);
         await SubmitOrThrowAsync(cmd, "Failed to move item.", cancellationToken).ConfigureAwait(false);
@@ -283,11 +290,6 @@ public sealed class NamespaceHandler
 
     private async Task AuthorizeAsync(string userId, string permission, string? itemId, CancellationToken cancellationToken)
     {
-        if (_authorizer is null)
-        {
-            return;
-        }
-
         var result = await _authorizer.AuthorizeAsync(userId, permission, itemId, cancellationToken).ConfigureAwait(false);
         if (!result.Allowed)
         {

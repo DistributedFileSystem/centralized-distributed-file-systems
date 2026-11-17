@@ -1,6 +1,7 @@
 using Dfs.Shared.Messages;
 using Dfs.Shared.Metadata;
 using Dfs.Shared.Security;
+using Dfs.MetadataServer.Store;
 
 namespace Dfs.MetadataServer.Security;
 
@@ -34,8 +35,9 @@ public sealed class RbacAuthorizer(IMetadataStore store) : IAuthorizer
         if (user is null || user.Disabled)
             return AuthorizationResult.Deny("User does not exist or is disabled.");
 
+        var isRoot = !isSystem && itemId == SqliteMetadataState.RootId;
         ItemInfo? item = null;
-        if (!isSystem)
+        if (!isSystem && !isRoot)
         {
             item = await store.FindItemByIdAsync(itemId!, cancellationToken);
             if (item is null) return AuthorizationResult.Deny("Item does not exist.");
@@ -64,6 +66,10 @@ public sealed class RbacAuthorizer(IMetadataStore store) : IAuthorizer
         }
 
         if (isSystem) return AuthorizationResult.Deny("No matching system grant.");
+        if (isRoot)
+            return permission == Permission.ItemList
+                ? AuthorizationResult.Allow("Authenticated user may list the virtual root.")
+                : AuthorizationResult.Deny("Only an Admin may change the virtual root.");
 
         var ancestorIds = new HashSet<string>(StringComparer.Ordinal);
         var currentPath = item!.Path;

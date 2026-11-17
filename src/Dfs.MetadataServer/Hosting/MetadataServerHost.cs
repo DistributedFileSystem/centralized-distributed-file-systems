@@ -44,7 +44,7 @@ public sealed class MetadataServerHost : IAsyncDisposable
     /// </summary>
     /// <param name="config">The configuration parameters.</param>
     /// <param name="store">Optional existing store instance; if null, creates a default MetadataStore.</param>
-    /// <param name="authorizer">Optional authorizer used to enforce RBAC permissions on incoming requests.</param>
+    /// <param name="authorizer">Optional override for the default RBAC authorizer.</param>
     public MetadataServerHost(MetadataServerConfig config, IMetadataStore? store = null, IAuthorizer? authorizer = null)
     {
         Config = config;
@@ -60,7 +60,7 @@ public sealed class MetadataServerHost : IAsyncDisposable
             _ownsStore = true;
         }
 
-        _namespaceHandler = new NamespaceHandler(Store, authorizer);
+        _namespaceHandler = new NamespaceHandler(Store, authorizer ?? new RbacAuthorizer(Store));
         _sessions = new SessionService(Store);
     }
 

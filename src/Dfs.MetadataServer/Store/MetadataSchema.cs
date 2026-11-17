@@ -128,11 +128,14 @@ public static class MetadataSchema
         CREATE TABLE IF NOT EXISTS uploads (
           id TEXT PRIMARY KEY,
           item_id TEXT NOT NULL,
+          parent_id TEXT NOT NULL,
+          name TEXT NOT NULL,
           base_version INTEGER NOT NULL,
           size INTEGER NOT NULL,
           chunk_size INTEGER NOT NULL,
           created_by TEXT NOT NULL,
-          created_at TEXT NOT NULL
+          created_at TEXT NOT NULL,
+          chunks_json TEXT NOT NULL
         );
 
         CREATE TABLE IF NOT EXISTS audit_log (

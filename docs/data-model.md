@@ -92,7 +92,7 @@ erDiagram
 
 `ITEMS.parent_id` của item cấp cao nhất là chuỗi `root` (không có row cho root). `USERS` có thêm `created_at`. Bảng `APPLIED_SEQ` (1 dòng: `seq`) lưu `seq` đã apply, dùng khi replay op log. `UNIQUE(parent_id, name)` trên `ITEMS`.
 
-Thêm các bảng: `SESSIONS` (token, user_id, expires_at), `UPLOADS` (upload đang dở), `AUDIT_LOG` (time, user, action, target, allowed). `GRANTS.item_id` = NULL nghĩa là system grant.
+Thêm các bảng: `SESSIONS` (token, user_id, expires_at), `UPLOADS` (id, item_id, parent_id, name, base_version, size, chunk_size, created_by, created_at, chunks_json), `AUDIT_LOG` (time, user, action, target, allowed). `GRANTS.item_id` = NULL nghĩa là system grant.
 
 ## Op log
 

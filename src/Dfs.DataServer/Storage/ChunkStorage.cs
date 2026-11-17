@@ -210,8 +210,6 @@ public sealed class ChunkStorage : IChunkStorage, IDisposable
         var deleted = 0;
         foreach (var chunkId in chunkIds)
         {
-            if (string.IsNullOrWhiteSpace(chunkId)) continue;
-
             ValidateChunkId(chunkId);
 
             var finalPath = GetChunkFilePath(chunkId);

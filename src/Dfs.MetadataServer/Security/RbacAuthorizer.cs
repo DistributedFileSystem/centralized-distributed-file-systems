@@ -1,6 +1,7 @@
 using Dfs.Shared.Messages;
 using Dfs.Shared.Metadata;
 using Dfs.Shared.Security;
+using Dfs.MetadataServer.Store;
 
 namespace Dfs.MetadataServer.Security;
 
@@ -27,15 +28,16 @@ public sealed class RbacAuthorizer(IMetadataStore store) : IAuthorizer
         if (string.IsNullOrWhiteSpace(userId) || string.IsNullOrWhiteSpace(permission))
             return AuthorizationResult.Deny("Missing user or permission.");
         var isSystem = SystemPermissions.Contains(permission);
-        if ((!isSystem && !ItemPermissions.Contains(permission)) || (isSystem != (itemId is null)))
+        if ((!isSystem && !ItemPermissions.Contains(permission)) || (isSystem && itemId is not null))
             return AuthorizationResult.Deny("Permission scope is invalid.");
 
         var user = await store.FindUserByIdAsync(userId, cancellationToken);
         if (user is null || user.Disabled)
             return AuthorizationResult.Deny("User does not exist or is disabled.");
 
+        var isRoot = !isSystem && (itemId is null || itemId == SqliteMetadataState.RootId);
         ItemInfo? item = null;
-        if (!isSystem)
+        if (!isSystem && !isRoot)
         {
             item = await store.FindItemByIdAsync(itemId!, cancellationToken);
             if (item is null) return AuthorizationResult.Deny("Item does not exist.");
@@ -64,6 +66,7 @@ public sealed class RbacAuthorizer(IMetadataStore store) : IAuthorizer
         }
 
         if (isSystem) return AuthorizationResult.Deny("No matching system grant.");
+        if (isRoot) return AuthorizationResult.Deny("Only an Admin may access the root.");
 
         var ancestorIds = new HashSet<string>(StringComparer.Ordinal);
         var currentPath = item!.Path;

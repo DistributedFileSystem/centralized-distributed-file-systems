@@ -22,6 +22,67 @@ public sealed class RbacAuthorizerTests : IDisposable
     private MetadataStore Open() => new(Path.Combine(_directory, "oplog.jsonl"), Path.Combine(_directory, "metadata.db"));
 
     [Fact]
+    public async Task Only_admin_can_authorize_item_permissions_on_virtual_root()
+    {
+        using var store = Open();
+        await new BuiltInRoleSeeder(store).SeedAsync();
+        await AddUser(store, "alice");
+        await AddUser(store, "bob");
+        await AddUser(store, "carol");
+        await Submit(store, new SetGrantCommand("admin-alice", BuiltInRoles.AdminId,
+            SubjectType.User, "alice", null, At));
+        await Submit(store, new CreateGroupCommand("admins", "Admins", At));
+        await Submit(store, new SetGroupMemberCommand("admins", "bob", true, At));
+        await Submit(store, new SetGrantCommand("admin-group", BuiltInRoles.AdminId,
+            SubjectType.Group, "admins", null, At));
+
+        var authorizer = new RbacAuthorizer(store);
+        foreach (var rootId in new string?[] { null, "root" })
+        {
+            Assert.True((await authorizer.AuthorizeAsync("alice", Permission.ItemCreate, rootId)).Allowed);
+            Assert.True((await authorizer.AuthorizeAsync("bob", Permission.ItemList, rootId)).Allowed);
+            Assert.False((await authorizer.AuthorizeAsync("carol", Permission.ItemList, rootId)).Allowed);
+        }
+        var missing = await authorizer.AuthorizeAsync("alice", Permission.ItemList, "missing");
+        Assert.False(missing.Allowed);
+        Assert.Equal("Item does not exist.", missing.Reason);
+    }
+
+    [Fact]
+    public async Task Invalid_rbac_ids_return_bad_request_without_entering_op_log()
+    {
+        using var store = Open();
+        await new BuiltInRoleSeeder(store).SeedAsync();
+        await AddUser(store, "alice");
+        await Submit(store, new CreateGroupCommand("team", "Team", At));
+        var logPath = Path.Combine(_directory, "oplog.jsonl");
+        var linesBefore = File.ReadAllLines(logPath).Length;
+
+        Dfs.Shared.Commands.IMetadataCommand[] invalid =
+        [
+            new CreateFolderCommand("folder", "root", "folder", null!, At),
+            new CreateFolderCommand("folder", "root", "folder", " ", At),
+            new SetGroupMemberCommand(null!, "alice", true, At),
+            new SetGroupMemberCommand("team", "", true, At),
+            new UpdateRoleCommand(null!, new ValueList<string>(), At),
+            new UpdateRoleCommand(" ", new ValueList<string>(), At),
+            new SetGrantCommand(null!, BuiltInRoles.AdminId, SubjectType.User, "alice", null, At),
+            new SetGrantCommand("grant", "", SubjectType.User, "alice", null, At),
+            new SetGrantCommand("grant", BuiltInRoles.AdminId, SubjectType.User, null!, null, At),
+            new SetGrantCommand("grant", BuiltInRoles.ViewerId, SubjectType.User, "alice", " ", At),
+            new RevokeGrantCommand(null!, At),
+            new RevokeGrantCommand("", At),
+        ];
+        foreach (var command in invalid)
+        {
+            var result = await store.SubmitAsync(command);
+            Assert.False(result.Success);
+            Assert.Equal(ErrorCode.BadRequest, result.Error);
+        }
+        Assert.Equal(linesBefore, File.ReadAllLines(logPath).Length);
+    }
+
+    [Fact]
     public async Task Built_in_roles_are_seeded_once_with_fixed_permissions_and_cannot_be_updated()
     {
         using var store = Open();

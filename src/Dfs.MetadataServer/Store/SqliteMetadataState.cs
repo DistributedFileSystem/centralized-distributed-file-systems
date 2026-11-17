@@ -59,8 +59,10 @@ internal sealed class SqliteMetadataState : IDisposable
         CreateRole c => ValidateRole(c),
         UpdateRole c => ValidateRoleUpdate(c),
         SetGrant c => ValidateGrant(c),
-        RevokeGrant c => Scalar("SELECT 1 FROM grants WHERE id = $id", ("$id", c.GrantId)) is null
-            ? CommandResult.Fail(ErrorCode.NotFound, "Grant not found.") : null,
+        RevokeGrant c => string.IsNullOrWhiteSpace(c.GrantId)
+            ? CommandResult.Fail(ErrorCode.BadRequest, "Invalid grant id.")
+            : Scalar("SELECT 1 FROM grants WHERE id = $id", ("$id", c.GrantId)) is null
+                ? CommandResult.Fail(ErrorCode.NotFound, "Grant not found.") : null,
         CreateSession c => ValidateSession(c),
         DeleteSession => null,
         RegisterDataServer c => ValidateRegisterDataServer(c),
@@ -361,6 +363,8 @@ internal sealed class SqliteMetadataState : IDisposable
             return CommandResult.Fail(ErrorCode.BadRequest, "Invalid item id.");
         if (string.IsNullOrWhiteSpace(c.ParentId))
             return CommandResult.Fail(ErrorCode.BadRequest, "Invalid parent id.");
+        if (string.IsNullOrWhiteSpace(c.OwnerId))
+            return CommandResult.Fail(ErrorCode.BadRequest, "Invalid owner id.");
         if (!NamespacePath.IsValidSegment(c.Name))
             return CommandResult.Fail(ErrorCode.BadRequest, "Invalid folder name.");
         if (c.ParentId != RootId)
@@ -388,6 +392,8 @@ internal sealed class SqliteMetadataState : IDisposable
 
     private CommandResult? ValidateGroupMember(SetGroupMember c)
     {
+        if (string.IsNullOrWhiteSpace(c.GroupId) || string.IsNullOrWhiteSpace(c.UserId))
+            return CommandResult.Fail(ErrorCode.BadRequest, "Invalid group or user id.");
         if (Scalar("SELECT 1 FROM groups WHERE id = $id", ("$id", c.GroupId)) is null)
             return CommandResult.Fail(ErrorCode.NotFound, "Group not found.");
         return Scalar("SELECT 1 FROM users WHERE id = $id", ("$id", c.UserId)) is null
@@ -564,6 +570,8 @@ internal sealed class SqliteMetadataState : IDisposable
 
     private CommandResult? ValidateRoleUpdate(UpdateRole c)
     {
+        if (string.IsNullOrWhiteSpace(c.RoleId))
+            return CommandResult.Fail(ErrorCode.BadRequest, "Invalid role id.");
         using var cmd = Command("SELECT scope FROM roles WHERE id = $id", ("$id", c.RoleId));
         using var r = cmd.ExecuteReader();
         if (!r.Read()) return CommandResult.Fail(ErrorCode.NotFound, "Role not found.");
@@ -574,12 +582,17 @@ internal sealed class SqliteMetadataState : IDisposable
 
     private CommandResult? ValidateGrant(SetGrant c)
     {
+        if (string.IsNullOrWhiteSpace(c.GrantId) || string.IsNullOrWhiteSpace(c.RoleId) ||
+            string.IsNullOrWhiteSpace(c.SubjectId) || (c.ItemId is not null && string.IsNullOrWhiteSpace(c.ItemId)))
+            return CommandResult.Fail(ErrorCode.BadRequest, "Invalid grant id, role id, subject id, or item id.");
         if (Scalar("SELECT 1 FROM grants WHERE id = $id", ("$id", c.GrantId)) is not null)
             return CommandResult.Fail(ErrorCode.AlreadyExists, "Grant already exists.");
         if (Scalar("SELECT 1 FROM roles WHERE id = $id", ("$id", c.RoleId)) is null)
             return CommandResult.Fail(ErrorCode.NotFound, "Role not found.");
         var subjectTable = c.SubjectType switch { SubjectType.User => "users", SubjectType.Group => "groups", _ => null };
-        if (subjectTable is null || Scalar($"SELECT 1 FROM {subjectTable} WHERE id = $id", ("$id", c.SubjectId)) is null)
+        if (subjectTable is null)
+            return CommandResult.Fail(ErrorCode.BadRequest, "Invalid grant subject type.");
+        if (Scalar($"SELECT 1 FROM {subjectTable} WHERE id = $id", ("$id", c.SubjectId)) is null)
             return CommandResult.Fail(ErrorCode.NotFound, "Grant subject not found.");
         var roleScope = Scalar("SELECT scope FROM roles WHERE id = $id", ("$id", c.RoleId)) as string;
         if ((c.ItemId is null && roleScope != nameof(RoleScope.System)) ||

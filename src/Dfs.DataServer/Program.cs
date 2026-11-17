@@ -1,4 +1,4 @@
-﻿using Dfs.DataServer.Config;
+using Dfs.DataServer.Config;
 using Dfs.DataServer.Hosting;
 using Dfs.DataServer.Storage;
 

@@ -350,19 +350,29 @@ public sealed class TransferHandlerTests : IAsyncDisposable
         await _store.SubmitAsync(new RegisterDataServer("ds-1", "127.0.0.1:7001", 100_000_000, 80_000_000, DateTime.UtcNow));
 
         var host = await StartHostAsync(new RbacAuthorizer(_store));
-        var credService = new UserCredentialService(_store);
-        await credService.CreateUserAsync("u-user1", "user1", "pass1", DateTime.UtcNow);
-        await credService.CreateUserAsync("u-user2", "user2", "pass2", DateTime.UtcNow);
+        var (adminClient, adminStream, adminSession) = await ConnectAndLoginAsync(host);
+        string folderId;
+        using (adminClient)
+        await using (adminStream)
+        {
+            await FrameCodec.WriteMessageAsync(adminStream, MessageType.CreateFolder, new MessageCreateFolder(Guid.NewGuid().ToString("D"), adminSession, "/uploads"));
+            var folderRes = await FrameCodec.ReadMessageAsync<CreateFolderResponse>(adminStream, MessageType.CreateFolderResponse);
+            Assert.NotNull(folderRes);
+            folderId = folderRes.Item.Id;
 
-        // Grant root creation so user1 can create upload
-        await _store.SubmitAsync(new SetGrant("g-user1-root", BuiltInRoles.EditorId, SubjectType.User, "u-user1", "root", DateTime.UtcNow));
+            var credService = new UserCredentialService(_store);
+            await credService.CreateUserAsync("u-user1", "user1", "pass1", DateTime.UtcNow);
+            await credService.CreateUserAsync("u-user2", "user2", "pass2", DateTime.UtcNow);
+
+            await _store.SubmitAsync(new SetGrant("g-user1-uploads", BuiltInRoles.EditorId, SubjectType.User, "u-user1", folderId, DateTime.UtcNow));
+        }
 
         var (client1, stream1, session1) = await ConnectAndLoginUserAsync(host, "user1", "pass1");
         string uploadId;
         using (client1)
         await using (stream1)
         {
-            var createReq = new CreateUpload(Guid.NewGuid().ToString("D"), session1, "/user1-file.txt", 100, 0);
+            var createReq = new CreateUpload(Guid.NewGuid().ToString("D"), session1, "/uploads/user1-file.txt", 100, 0);
             await FrameCodec.WriteMessageAsync(stream1, MessageType.CreateUpload, createReq);
             var createRes = await FrameCodec.ReadMessageAsync<CreateUploadResponse>(stream1, MessageType.CreateUploadResponse);
             Assert.NotNull(createRes);

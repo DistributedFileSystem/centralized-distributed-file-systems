@@ -241,8 +241,8 @@ public sealed class UploadMetadataStoreTests : IDisposable
             uploadId, itemId, RootId, "col.txt", "u-alice", 10, 0, 4096,
             new ValueList<PlannedChunk>([planned]), DateTime.UtcNow));
 
-        // Pre-insert colliding grant
-        await _store.SubmitAsync(new SetGrant("g-owner-" + itemId, BuiltInRoles.OwnerId, SubjectType.User, "u-alice", ItemId: null, DateTime.UtcNow));
+        // Pre-insert colliding grant using Admin role (System role allows null ItemId)
+        await _store.SubmitAsync(new SetGrant("g-owner-" + itemId, BuiltInRoles.AdminId, SubjectType.User, "u-alice", ItemId: null, DateTime.UtcNow));
 
         var commitRes = await _store.SubmitAsync(new CommandCommitUpload(
             uploadId,

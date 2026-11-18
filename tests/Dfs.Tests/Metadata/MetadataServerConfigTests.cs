@@ -2,6 +2,7 @@ using Dfs.MetadataServer.Config;
 
 namespace Dfs.Tests.Metadata;
 
+[Collection("EnvironmentVariables")]
 public class MetadataServerConfigTests
 {
     [Fact]

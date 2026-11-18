@@ -59,10 +59,14 @@ internal sealed class SqliteMetadataState : IDisposable
         CreateRole c => ValidateRole(c),
         UpdateRole c => ValidateRoleUpdate(c),
         SetGrant c => ValidateGrant(c),
-        RevokeGrant c => Scalar("SELECT 1 FROM grants WHERE id = $id", ("$id", c.GrantId)) is null
-            ? CommandResult.Fail(ErrorCode.NotFound, "Grant not found.") : null,
+        RevokeGrant c => string.IsNullOrWhiteSpace(c.GrantId)
+            ? CommandResult.Fail(ErrorCode.BadRequest, "Invalid grant id.")
+            : Scalar("SELECT 1 FROM grants WHERE id = $id", ("$id", c.GrantId)) is null
+                ? CommandResult.Fail(ErrorCode.NotFound, "Grant not found.") : null,
         CreateSession c => ValidateSession(c),
         DeleteSession => null,
+        RegisterDataServer c => ValidateRegisterDataServer(c),
+        UpdateHeartbeat c => ValidateUpdateHeartbeat(c),
         _ => CommandResult.Fail(ErrorCode.BadRequest, $"Unsupported command {command.GetType().Name}."),
     };
 
@@ -143,6 +147,30 @@ internal sealed class SqliteMetadataState : IDisposable
                 break;
             case DeleteSession c:
                 Exec("DELETE FROM sessions WHERE token = $token", ("$token", c.SessionToken));
+                break;
+            case RegisterDataServer c:
+                Exec(
+                    """
+                    INSERT INTO data_servers (id, address, status, capacity_bytes, free_bytes, chunk_count, last_heartbeat)
+                    VALUES ($id, $addr, 'Alive', $cap, $free, 0, $t)
+                    ON CONFLICT(id) DO UPDATE SET
+                        address = $addr,
+                        status = 'Alive',
+                        capacity_bytes = $cap,
+                        free_bytes = $free,
+                        last_heartbeat = $t
+                    """,
+                    ("$id", c.NodeId), ("$addr", c.Address), ("$cap", c.CapacityBytes),
+                    ("$free", c.FreeBytes), ("$t", Format(c.At)));
+                break;
+            case UpdateHeartbeat c:
+                Exec(
+                    """
+                    UPDATE data_servers
+                    SET free_bytes = $free, chunk_count = $chunks, status = 'Alive', last_heartbeat = $t
+                    WHERE id = $id
+                    """,
+                    ("$id", c.NodeId), ("$free", c.FreeBytes), ("$chunks", c.ChunkCount), ("$t", Format(c.At)));
                 break;
             default:
                 throw new InvalidOperationException($"Unsupported command {command.GetType().Name}.");
@@ -250,6 +278,83 @@ internal sealed class SqliteMetadataState : IDisposable
         return grants;
     }
 
+    public int MarkDeadServers(DateTime cutoff)
+    {
+        var utcCutoff = cutoff.ToUniversalTime();
+        var deadIds = new List<string>();
+        using (var selectCmd = Command("SELECT id, last_heartbeat FROM data_servers WHERE status = 'Alive'"))
+        using (var reader = selectCmd.ExecuteReader())
+        {
+            while (reader.Read())
+            {
+                var id = reader.GetString(0);
+                var lastHeartbeat = Parse(reader.GetString(1));
+                if (lastHeartbeat < utcCutoff)
+                {
+                    deadIds.Add(id);
+                }
+            }
+        }
+
+        if (deadIds.Count == 0) return 0;
+
+        using var tx = _db.BeginTransaction();
+        using var updateCmd = _db.CreateCommand();
+        updateCmd.Transaction = tx;
+        updateCmd.CommandText = "UPDATE data_servers SET status = 'Dead' WHERE id = $id";
+        var idParam = updateCmd.Parameters.Add("$id", SqliteType.Text);
+
+        var count = 0;
+        foreach (var id in deadIds)
+        {
+            idParam.Value = id;
+            count += updateCmd.ExecuteNonQuery();
+        }
+
+        tx.Commit();
+        return count;
+    }
+
+    public IReadOnlyList<DataServerInfo> ListDataServers()
+    {
+        using var cmd = Command("SELECT id, address, status, capacity_bytes, free_bytes, chunk_count, last_heartbeat FROM data_servers ORDER BY id");
+        using var reader = cmd.ExecuteReader();
+        var list = new List<DataServerInfo>();
+        while (reader.Read())
+        {
+            var id = reader.GetString(0);
+            var addr = reader.GetString(1);
+            var statusStr = reader.GetString(2);
+            var status = Enum.TryParse<DataServerStatus>(statusStr, true, out var parsedStatus)
+                ? parsedStatus
+                : DataServerStatus.Dead;
+            var capacity = reader.GetInt64(3);
+            var free = reader.GetInt64(4);
+            var chunks = reader.GetInt32(5);
+            var lastHeartbeat = DateTime.Parse(reader.GetString(6), CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal);
+            list.Add(new DataServerInfo(id, addr, status, capacity, free, chunks, lastHeartbeat));
+        }
+        return list;
+    }
+
+    public DataServerInfo? FindDataServerById(string nodeId)
+    {
+        using var cmd = Command("SELECT id, address, status, capacity_bytes, free_bytes, chunk_count, last_heartbeat FROM data_servers WHERE id = $id", ("$id", nodeId));
+        using var reader = cmd.ExecuteReader();
+        if (!reader.Read()) return null;
+        var id = reader.GetString(0);
+        var addr = reader.GetString(1);
+        var statusStr = reader.GetString(2);
+        var status = Enum.TryParse<DataServerStatus>(statusStr, true, out var parsedStatus)
+            ? parsedStatus
+            : DataServerStatus.Dead;
+        var capacity = reader.GetInt64(3);
+        var free = reader.GetInt64(4);
+        var chunks = reader.GetInt32(5);
+        var lastHeartbeat = DateTime.Parse(reader.GetString(6), CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal);
+        return new DataServerInfo(id, addr, status, capacity, free, chunks, lastHeartbeat);
+    }
+
     public void Dispose() => _db.Dispose();
 
     private CommandResult? ValidateFolder(CreateFolder c)
@@ -258,6 +363,8 @@ internal sealed class SqliteMetadataState : IDisposable
             return CommandResult.Fail(ErrorCode.BadRequest, "Invalid item id.");
         if (string.IsNullOrWhiteSpace(c.ParentId))
             return CommandResult.Fail(ErrorCode.BadRequest, "Invalid parent id.");
+        if (string.IsNullOrWhiteSpace(c.OwnerId))
+            return CommandResult.Fail(ErrorCode.BadRequest, "Invalid owner id.");
         if (!NamespacePath.IsValidSegment(c.Name))
             return CommandResult.Fail(ErrorCode.BadRequest, "Invalid folder name.");
         if (c.ParentId != RootId)
@@ -285,6 +392,8 @@ internal sealed class SqliteMetadataState : IDisposable
 
     private CommandResult? ValidateGroupMember(SetGroupMember c)
     {
+        if (string.IsNullOrWhiteSpace(c.GroupId) || string.IsNullOrWhiteSpace(c.UserId))
+            return CommandResult.Fail(ErrorCode.BadRequest, "Invalid group or user id.");
         if (Scalar("SELECT 1 FROM groups WHERE id = $id", ("$id", c.GroupId)) is null)
             return CommandResult.Fail(ErrorCode.NotFound, "Group not found.");
         return Scalar("SELECT 1 FROM users WHERE id = $id", ("$id", c.UserId)) is null
@@ -405,6 +514,32 @@ internal sealed class SqliteMetadataState : IDisposable
             : (long)disabled != 0 ? CommandResult.Fail(ErrorCode.Unauthorized, "User is disabled.") : null;
     }
 
+    private static CommandResult? ValidateRegisterDataServer(RegisterDataServer c)
+    {
+        if (string.IsNullOrWhiteSpace(c.NodeId))
+            return CommandResult.Fail(ErrorCode.BadRequest, "NodeId must not be empty.");
+        if (string.IsNullOrWhiteSpace(c.Address))
+            return CommandResult.Fail(ErrorCode.BadRequest, "Address must not be empty.");
+        if (c.CapacityBytes < 0)
+            return CommandResult.Fail(ErrorCode.BadRequest, "CapacityBytes cannot be negative.");
+        if (c.FreeBytes < 0)
+            return CommandResult.Fail(ErrorCode.BadRequest, "FreeBytes cannot be negative.");
+        return null;
+    }
+
+    private CommandResult? ValidateUpdateHeartbeat(UpdateHeartbeat c)
+    {
+        if (string.IsNullOrWhiteSpace(c.NodeId))
+            return CommandResult.Fail(ErrorCode.BadRequest, "NodeId must not be empty.");
+        if (c.FreeBytes < 0)
+            return CommandResult.Fail(ErrorCode.BadRequest, "FreeBytes cannot be negative.");
+        if (c.ChunkCount < 0)
+            return CommandResult.Fail(ErrorCode.BadRequest, "ChunkCount cannot be negative.");
+        if (Scalar("SELECT 1 FROM data_servers WHERE id = $id", ("$id", c.NodeId)) is null)
+            return CommandResult.Fail(ErrorCode.NotFound, $"Data server '{c.NodeId}' not registered.");
+        return null;
+    }
+
     private CommandResult? ValidateRole(CreateRole c)
     {
         if (string.IsNullOrWhiteSpace(c.RoleId) || string.IsNullOrWhiteSpace(c.Name) || c.Permissions is null)
@@ -435,6 +570,8 @@ internal sealed class SqliteMetadataState : IDisposable
 
     private CommandResult? ValidateRoleUpdate(UpdateRole c)
     {
+        if (string.IsNullOrWhiteSpace(c.RoleId))
+            return CommandResult.Fail(ErrorCode.BadRequest, "Invalid role id.");
         using var cmd = Command("SELECT scope FROM roles WHERE id = $id", ("$id", c.RoleId));
         using var r = cmd.ExecuteReader();
         if (!r.Read()) return CommandResult.Fail(ErrorCode.NotFound, "Role not found.");
@@ -445,12 +582,17 @@ internal sealed class SqliteMetadataState : IDisposable
 
     private CommandResult? ValidateGrant(SetGrant c)
     {
+        if (string.IsNullOrWhiteSpace(c.GrantId) || string.IsNullOrWhiteSpace(c.RoleId) ||
+            string.IsNullOrWhiteSpace(c.SubjectId) || (c.ItemId is not null && string.IsNullOrWhiteSpace(c.ItemId)))
+            return CommandResult.Fail(ErrorCode.BadRequest, "Invalid grant id, role id, subject id, or item id.");
         if (Scalar("SELECT 1 FROM grants WHERE id = $id", ("$id", c.GrantId)) is not null)
             return CommandResult.Fail(ErrorCode.AlreadyExists, "Grant already exists.");
         if (Scalar("SELECT 1 FROM roles WHERE id = $id", ("$id", c.RoleId)) is null)
             return CommandResult.Fail(ErrorCode.NotFound, "Role not found.");
         var subjectTable = c.SubjectType switch { SubjectType.User => "users", SubjectType.Group => "groups", _ => null };
-        if (subjectTable is null || Scalar($"SELECT 1 FROM {subjectTable} WHERE id = $id", ("$id", c.SubjectId)) is null)
+        if (subjectTable is null)
+            return CommandResult.Fail(ErrorCode.BadRequest, "Invalid grant subject type.");
+        if (Scalar($"SELECT 1 FROM {subjectTable} WHERE id = $id", ("$id", c.SubjectId)) is null)
             return CommandResult.Fail(ErrorCode.NotFound, "Grant subject not found.");
         var roleScope = Scalar("SELECT scope FROM roles WHERE id = $id", ("$id", c.RoleId)) as string;
         if ((c.ItemId is null && roleScope != nameof(RoleScope.System)) ||

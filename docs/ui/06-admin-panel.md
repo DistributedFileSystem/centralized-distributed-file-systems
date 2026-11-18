@@ -17,10 +17,10 @@ Cung cấp phân hệ quản trị tập trung dành riêng cho người dùng c
 +---------------------------------------------------------------------------------------------------------+
 | [Logo DFS]  | BẢNG ĐIỀU KHIỂN QUẢN TRỊ HỆ THỐNG      | Quyền hạn: System Admin      | [an.nguyen v] [Thoát]|
 +---------------------------------------------------------------------------------------------------------+
-| TAB ĐIỀU HƯỚNG:  [ (1) NGƯỜI DÙNG (USERS) ]   [ (2) NHÓM (GROUPS) ]   [ (3) PHÂN QUYỀN (GRANTS) ]        |
-+---------------------------------------------------------------------------------------------------------+
 |                                                                                                         |
-|  === TAB 1: QUẢN LÝ NGƯỜI DÙNG (USERS) ===                                                              |
+|  MENU ĐIỀU HƯỚNG TRÁI: (1) NGƯỜI DÙNG (USERS) | (2) NHÓM (GROUPS) | (3) PHÂN QUYỀN (GRANTS)             |
+|                                                                                                         |
+|  === PHÂN HỆ 1: QUẢN LÝ NGƯỜI DÙNG (USERS) ===                                                          |
 |                                                                                                         |
 |  [+] Tạo người dùng mới  |  [T] Đặt lại mật khẩu  |  [!] Khóa tài khoản  | Tìm kiếm: [               ]      |
 |  +---------------------------------------------------------------------------------------------------+  |
@@ -35,7 +35,7 @@ Cung cấp phân hệ quản trị tập trung dành riêng cho người dùng c
 |                                                                                                         |
 |---------------------------------------------------------------------------------------------------------|
 |                                                                                                         |
-|  === TAB 2: QUẢN LÝ NHÓM (GROUPS) ===                                                                   |
+|  === PHÂN HỆ 2: QUẢN LÝ NHÓM (GROUPS) ===                                                               |
 |                                                                                                         |
 |  DANH SÁCH NHÓM:                             THÀNH VIÊN TRONG NHÓM 'Team A':                            |
 |  [+] Tạo nhóm mới                            [+] Thêm thành viên vào nhóm                               |
@@ -49,7 +49,7 @@ Cung cấp phân hệ quản trị tập trung dành riêng cho người dùng c
 |                                                                                                         |
 |---------------------------------------------------------------------------------------------------------|
 |                                                                                                         |
-|  === TAB 3: PHÂN QUYỀN TRUY CẬP (GRANTS) ===                                                            |
+|  === PHÂN HỆ 3: PHÂN QUYỀN TRUY CẬP (GRANTS) ===                                                        |
 |                                                                                                         |
 |  1. CHỌN MỤC TIÊU CẤP QUYỀN:                 2. DANH SÁCH QUYỀN ĐANG ÁP DỤNG TRÊN '/projects':          |
 |  Cây thư mục:                                +-------------------------------------------------------+  |
@@ -74,7 +74,7 @@ Cung cấp phân hệ quản trị tập trung dành riêng cho người dùng c
 
 ### Tab 1: Quản lý Người dùng (Users Management)
 - **Tạo người dùng mới:** Mở popup nhập `Username`, `Mật khẩu ban đầu` và chọn `Nhóm gia nhập`. Mật khẩu được mã hóa PBKDF2-SHA256 kèm salt phía máy chủ.
-- **Khóa tài khoản (Disable):** Khi một tài khoản bị khóa, trường `disabled=1` trong SQLite. Nếu tài khoản đó đang đăng nhập hoặc cố tình đăng nhập lại, server lập tức từ chối với mã lỗi `Unauthorized / AccountDisabled`.
+- **Khóa tài khoản (Disable):** Khi một tài khoản bị khóa, trường `disabled=1` trong cơ sở dữ liệu SQLite của Metadata Server. Nếu tài khoản đó đang đăng nhập hoặc cố tình đăng nhập lại, server lập tức từ chối với mã lỗi chuẩn `ErrorCode.Unauthorized` (thông báo: "User does not exist or has been disabled"). Nếu token cũ cố gắng gửi request, `SessionService` sẽ từ chối xác thực.
 - **Đặt lại mật khẩu (Reset Password):** Quản trị viên nhập mật khẩu mới thay cho thành viên khi bị quên.
 
 ### Tab 2: Quản lý Nhóm (Groups Management)

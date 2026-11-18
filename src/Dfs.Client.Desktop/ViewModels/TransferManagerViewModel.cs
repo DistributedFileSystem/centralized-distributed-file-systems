@@ -1,17 +1,21 @@
 using System.Collections.ObjectModel;
 using System.Windows.Input;
 using Dfs.Client.Desktop.Models;
+using Dfs.Shared.Client;
 
 namespace Dfs.Client.Desktop.ViewModels;
 
 public sealed class TransferManagerViewModel : ViewModelBase
 {
+    private readonly IDfsClient? _client;
+
     public ObservableCollection<UiTransferItem> Transfers { get; } = [];
 
     public ICommand ClearCompletedCommand { get; }
 
-    public TransferManagerViewModel()
+    public TransferManagerViewModel(IDfsClient? client = null)
     {
+        _client = client;
         ClearCompletedCommand = new RelayCommand(ClearCompleted);
         LoadSampleTransfers();
     }
@@ -60,4 +64,3 @@ public sealed class TransferManagerViewModel : ViewModelBase
         }
     }
 }
-

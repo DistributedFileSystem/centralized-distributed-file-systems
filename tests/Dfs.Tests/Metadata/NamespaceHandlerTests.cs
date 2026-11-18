@@ -375,9 +375,11 @@ public sealed class NamespaceHandlerTests : IDisposable
         Assert.True((await host.Store.SubmitAsync(new SetGrant("g-bob-viewer", BuiltInRoles.ViewerId,
             SubjectType.User, "u-bob", shared.Id, DateTime.UtcNow))).Success);
 
-        var root = await RequestAsync<ListDir, ListDirResponse>(stream, MessageType.ListDir,
-            MessageType.ListDirResponse, new ListDir("list-root", "bob-session", "/"));
-        Assert.Equal(new[] { "/shared" }, root.Items.Select(item => item.Path));
+        Assert.Equal(ErrorCode.Forbidden, (await RequestExpectErrorAsync(stream, MessageType.ListDir,
+            new ListDir("deny-root-list", "bob-session", "/"))).Code);
+        var sharedList = await RequestAsync<ListDir, ListDirResponse>(stream, MessageType.ListDir,
+            MessageType.ListDirResponse, new ListDir("list-shared", "bob-session", "/shared"));
+        Assert.Equal(new[] { "/shared/docs" }, sharedList.Items.Select(item => item.Path));
         var child = await RequestAsync<Stat, StatResponse>(stream, MessageType.Stat,
             MessageType.StatResponse, new Stat("stat-child", "bob-session", "/shared/docs"));
         Assert.Equal("/shared/docs", child.Item.Path);
@@ -408,7 +410,7 @@ public sealed class NamespaceHandlerTests : IDisposable
     }
 
     [Fact]
-    public async Task WithoutAuthorizer_StillEnforcesAuthentication_AndRejectsInvalidSession()
+    public async Task DefaultAuthorizer_StillRejectsInvalidSession()
     {
         var dataDir = Path.Combine(_tempDir, "no-authorizer");
         Directory.CreateDirectory(dataDir);
@@ -419,7 +421,7 @@ public sealed class NamespaceHandlerTests : IDisposable
         await using var _ = stream;
         using var __ = client;
 
-        // Unknown session rejected as Unauthorized even when authorizer is null (no bypass!)
+        // Unknown session is rejected before the default authorizer runs.
         var errFake = await RequestExpectErrorAsync(
             stream, MessageType.Stat, new Stat("noauth-1", "fake-token", "/"));
         Assert.Equal(ErrorCode.Unauthorized, errFake.Code);

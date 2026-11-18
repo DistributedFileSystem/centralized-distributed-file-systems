@@ -28,14 +28,14 @@ public sealed class RbacAuthorizer(IMetadataStore store) : IAuthorizer
         if (string.IsNullOrWhiteSpace(userId) || string.IsNullOrWhiteSpace(permission))
             return AuthorizationResult.Deny("Missing user or permission.");
         var isSystem = SystemPermissions.Contains(permission);
-        if ((!isSystem && !ItemPermissions.Contains(permission)) || (isSystem != (itemId is null)))
+        if ((!isSystem && !ItemPermissions.Contains(permission)) || (isSystem && itemId is not null))
             return AuthorizationResult.Deny("Permission scope is invalid.");
 
         var user = await store.FindUserByIdAsync(userId, cancellationToken);
         if (user is null || user.Disabled)
             return AuthorizationResult.Deny("User does not exist or is disabled.");
 
-        var isRoot = !isSystem && itemId == SqliteMetadataState.RootId;
+        var isRoot = !isSystem && (itemId is null || itemId == SqliteMetadataState.RootId);
         ItemInfo? item = null;
         if (!isSystem && !isRoot)
         {
@@ -66,10 +66,7 @@ public sealed class RbacAuthorizer(IMetadataStore store) : IAuthorizer
         }
 
         if (isSystem) return AuthorizationResult.Deny("No matching system grant.");
-        if (isRoot)
-            return permission == Permission.ItemList
-                ? AuthorizationResult.Allow("Authenticated user may list the virtual root.")
-                : AuthorizationResult.Deny("Only an Admin may change the virtual root.");
+        if (isRoot) return AuthorizationResult.Deny("Only an Admin may access the root.");
 
         var ancestorIds = new HashSet<string>(StringComparer.Ordinal);
         var currentPath = item!.Path;

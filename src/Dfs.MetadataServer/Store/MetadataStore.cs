@@ -80,7 +80,7 @@ public sealed class MetadataStore : IMetadataStore, IDisposable
 
     /// <inheritdoc />
     public Task<IReadOnlyList<GroupInfo>> ListGroupsAsync(CancellationToken cancellationToken = default) =>
-        Task.FromResult<IReadOnlyList<GroupInfo>>(Array.Empty<GroupInfo>());
+        Read(() => _state.ListGroups());
 
     /// <inheritdoc />
     public Task<IReadOnlyList<RoleInfo>> ListRolesAsync(CancellationToken cancellationToken = default) =>

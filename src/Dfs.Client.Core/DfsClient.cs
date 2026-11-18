@@ -1,4 +1,5 @@
 using System.Net.Sockets;
+using System.Security.Cryptography;
 using System.Text.Json;
 using Dfs.Shared.Client;
 using Dfs.Shared.Framing;
@@ -497,11 +498,278 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
 
     /// <inheritdoc />
     public Task<CommitUploadResponse> UploadFileAsync(string path, Stream content, int baseVersion, CancellationToken cancellationToken = default) =>
-        throw new NotSupportedException("UploadFileAsync is not supported yet (scheduled for M2-10).");
+        UploadFileAsync(path, content, baseVersion, progress: null, cancellationToken);
+
+    /// <summary>Uploads content with optional transfer progress tracking.</summary>
+    public async Task<CommitUploadResponse> UploadFileAsync(
+        string path,
+        Stream content,
+        int baseVersion,
+        IProgress<(long BytesTransferred, long TotalBytes)>? progress,
+        CancellationToken cancellationToken = default)
+    {
+        ThrowIfDisposed();
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        ArgumentNullException.ThrowIfNull(content);
+
+        byte[] fullContent;
+        if (content is MemoryStream ms && ms.TryGetBuffer(out var seg))
+        {
+            var offset = seg.Offset + (int)ms.Position;
+            var count = (int)(ms.Length - ms.Position);
+            fullContent = count <= 0 ? Array.Empty<byte>() : seg.Array![offset..(offset + count)];
+        }
+        else
+        {
+            using var buffer = new MemoryStream();
+            await content.CopyToAsync(buffer, cancellationToken).ConfigureAwait(false);
+            fullContent = buffer.ToArray();
+        }
+
+        var totalSize = (long)fullContent.Length;
+
+        // Step 1: CreateUpload
+        var createReqId = Guid.NewGuid().ToString("D");
+        var createResponse = await SendAndReceiveAsync<CreateUpload, CreateUploadResponse>(
+            createReqId,
+            MessageType.CreateUpload,
+            MessageType.CreateUploadResponse,
+            session => new CreateUpload(createReqId, session!, path, totalSize, baseVersion),
+            requiresSession: true,
+            cancellationToken).ConfigureAwait(false);
+
+        var uploadId = createResponse.UploadId;
+        var chunkSize = createResponse.ChunkSize;
+        var uploadChunks = createResponse.Chunks;
+
+        if (uploadChunks.Count == 0)
+        {
+            progress?.Report((0, 0));
+        }
+
+        // Step 2: Transfer chunks in parallel
+        var checksums = new ChecksumInfo[uploadChunks.Count];
+        long bytesTransferred = 0;
+
+        try
+        {
+            var parallelOptions = new ParallelOptions
+            {
+                MaxDegreeOfParallelism = Math.Min(4, Environment.ProcessorCount),
+                CancellationToken = cancellationToken
+            };
+
+            await Parallel.ForEachAsync(uploadChunks, parallelOptions, async (chunk, ct) =>
+            {
+                var offset = (long)chunk.Index * chunkSize;
+                var count = (int)Math.Min((long)chunkSize, totalSize - offset);
+                var chunkData = new ReadOnlyMemory<byte>(fullContent, (int)offset, count);
+                var expectedSha = Convert.ToHexStringLower(SHA256.HashData(chunkData.Span));
+
+                var checksum = await WriteChunkToDataServerAsync(chunk, chunkData, expectedSha, ct).ConfigureAwait(false);
+                checksums[chunk.Index] = checksum;
+
+                var uploaded = Interlocked.Add(ref bytesTransferred, count);
+                progress?.Report((uploaded, totalSize));
+            }).ConfigureAwait(false);
+        }
+        catch
+        {
+            try
+            {
+                var abortReqId = Guid.NewGuid().ToString("D");
+                await SendAndReceiveAsync<AbortUpload, AbortUploadResponse>(
+                    abortReqId,
+                    MessageType.AbortUpload,
+                    MessageType.AbortUploadResponse,
+                    session => new AbortUpload(abortReqId, session!, uploadId),
+                    requiresSession: true,
+                    CancellationToken.None).ConfigureAwait(false);
+            }
+            catch
+            {
+            }
+
+            throw;
+        }
+
+        // Step 3: CommitUpload
+        var commitReqId = Guid.NewGuid().ToString("D");
+        var commitResponse = await SendAndReceiveAsync<CommitUpload, CommitUploadResponse>(
+            commitReqId,
+            MessageType.CommitUpload,
+            MessageType.CommitUploadResponse,
+            session => new CommitUpload(commitReqId, session!, uploadId, new ValueList<ChecksumInfo>(checksums)),
+            requiresSession: true,
+            cancellationToken).ConfigureAwait(false);
+
+        return commitResponse;
+    }
+
+    private async Task<ChecksumInfo> WriteChunkToDataServerAsync(
+        UploadChunk chunk,
+        ReadOnlyMemory<byte> chunkData,
+        string expectedSha,
+        CancellationToken cancellationToken)
+    {
+        Exception? lastEx = null;
+        foreach (var serverEndpoint in chunk.Servers)
+        {
+            try
+            {
+                using var client = new TcpClient();
+                var (host, port) = ParseEndpoint(serverEndpoint);
+                using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                timeoutCts.CancelAfter(_options.RequestTimeout);
+
+                await client.ConnectAsync(host, port, timeoutCts.Token).ConfigureAwait(false);
+                await using var stream = client.GetStream();
+
+                var helloReqId = Guid.NewGuid().ToString("D");
+                var hello = new Hello(helloReqId, ProtocolConstants.CurrentProtocolVersion, NodeType.Client);
+                var helloRes = await HandshakeHandler.ClientHandshakeAsync(stream, hello, timeoutCts.Token).ConfigureAwait(false);
+                if (helloRes.NodeType != NodeType.Data)
+                {
+                    throw new DfsException(ErrorCode.BadRequest, $"Expected Data node, got {helloRes.NodeType}.");
+                }
+
+                var writeReqId = Guid.NewGuid().ToString("D");
+                var header = new WriteChunk(writeReqId, chunk.ChunkId, chunk.Token, chunkData.Length);
+                await FrameCodec.WriteChunkFrameAsync(stream, MessageType.WriteChunk, header, chunkData, timeoutCts.Token).ConfigureAwait(false);
+
+                var writeRes = await FrameCodec.ReadMessageAsync<WriteChunkResponse>(stream, MessageType.WriteChunkResponse, timeoutCts.Token).ConfigureAwait(false);
+                if (writeRes is null || !string.Equals(writeRes.Sha256, expectedSha, StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new DfsException(ErrorCode.Internal, $"Data server returned mismatched SHA-256: expected '{expectedSha}', got '{writeRes?.Sha256}'.");
+                }
+
+                return new ChecksumInfo(chunk.ChunkId, chunkData.Length, writeRes.Sha256);
+            }
+            catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+            {
+                lastEx = ex;
+            }
+        }
+
+        if (lastEx is DfsException dfsEx) throw dfsEx;
+        throw new DfsException(ErrorCode.Unavailable, $"Failed to write chunk '{chunk.ChunkId}' to any data server: {lastEx?.Message}");
+    }
 
     /// <inheritdoc />
     public Task DownloadFileAsync(string path, Stream destination, int version = 0, CancellationToken cancellationToken = default) =>
-        throw new NotSupportedException("DownloadFileAsync is not supported yet (scheduled for M2-10).");
+        DownloadFileAsync(path, destination, version, progress: null, cancellationToken);
+
+    /// <summary>Downloads a file version with optional transfer progress tracking.</summary>
+    public async Task DownloadFileAsync(
+        string path,
+        Stream destination,
+        int version,
+        IProgress<(long BytesTransferred, long TotalBytes)>? progress,
+        CancellationToken cancellationToken = default)
+    {
+        ThrowIfDisposed();
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        ArgumentNullException.ThrowIfNull(destination);
+
+        // Step 1: Open
+        var openReqId = Guid.NewGuid().ToString("D");
+        var openResponse = await SendAndReceiveAsync<Open, OpenResponse>(
+            openReqId,
+            MessageType.Open,
+            MessageType.OpenResponse,
+            session => new Open(openReqId, session!, path, version),
+            requiresSession: true,
+            cancellationToken).ConfigureAwait(false);
+
+        var totalSize = openResponse.Size;
+        var chunks = openResponse.Chunks;
+
+        if (chunks.Count == 0)
+        {
+            progress?.Report((0, 0));
+            return;
+        }
+
+        // Step 2: Download chunks in parallel
+        var chunkBuffers = new byte[chunks.Count][];
+        long bytesDownloaded = 0;
+
+        var parallelOptions = new ParallelOptions
+        {
+            MaxDegreeOfParallelism = Math.Min(4, Environment.ProcessorCount),
+            CancellationToken = cancellationToken
+        };
+
+        await Parallel.ForEachAsync(chunks, parallelOptions, async (chunk, ct) =>
+        {
+            var data = await ReadChunkFromDataServerAsync(chunk, ct).ConfigureAwait(false);
+            chunkBuffers[chunk.Index] = data;
+
+            var downloaded = Interlocked.Add(ref bytesDownloaded, data.Length);
+            progress?.Report((downloaded, totalSize));
+        }).ConfigureAwait(false);
+
+        // Step 3: Write sequentially to destination
+        for (var i = 0; i < chunkBuffers.Length; i++)
+        {
+            await destination.WriteAsync(chunkBuffers[i], cancellationToken).ConfigureAwait(false);
+        }
+        await destination.FlushAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<byte[]> ReadChunkFromDataServerAsync(
+        OpenChunk chunk,
+        CancellationToken cancellationToken)
+    {
+        Exception? lastEx = null;
+        foreach (var serverEndpoint in chunk.Servers)
+        {
+            try
+            {
+                using var client = new TcpClient();
+                var (host, port) = ParseEndpoint(serverEndpoint);
+                using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                timeoutCts.CancelAfter(_options.RequestTimeout);
+
+                await client.ConnectAsync(host, port, timeoutCts.Token).ConfigureAwait(false);
+                await using var stream = client.GetStream();
+
+                var helloReqId = Guid.NewGuid().ToString("D");
+                var hello = new Hello(helloReqId, ProtocolConstants.CurrentProtocolVersion, NodeType.Client);
+                var helloRes = await HandshakeHandler.ClientHandshakeAsync(stream, hello, timeoutCts.Token).ConfigureAwait(false);
+                if (helloRes.NodeType != NodeType.Data)
+                {
+                    throw new DfsException(ErrorCode.BadRequest, $"Expected Data node, got {helloRes.NodeType}.");
+                }
+
+                var readReqId = Guid.NewGuid().ToString("D");
+                var request = new ReadChunk(readReqId, chunk.ChunkId, chunk.Token);
+                await FrameCodec.WriteMessageAsync(stream, MessageType.ReadChunk, request, timeoutCts.Token).ConfigureAwait(false);
+
+                var frame = await FrameCodec.ReadChunkFrameAsync<ReadChunkResponse>(stream, MessageType.ReadChunkResponse, timeoutCts.Token).ConfigureAwait(false);
+                if (frame is null)
+                {
+                    throw new DfsException(ErrorCode.Internal, $"Failed to receive chunk frame for '{chunk.ChunkId}'.");
+                }
+                var bytes = frame.ChunkBytes.ToArray();
+
+                var actualSha = Convert.ToHexStringLower(SHA256.HashData(bytes));
+                if (!string.Equals(actualSha, chunk.Sha256, StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new DfsException(ErrorCode.Internal, $"Downloaded chunk '{chunk.ChunkId}' checksum mismatch: expected '{chunk.Sha256}', got '{actualSha}'.");
+                }
+
+                return bytes;
+            }
+            catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+            {
+                lastEx = ex;
+            }
+        }
+
+        if (lastEx is DfsException dfsEx) throw dfsEx;
+        throw new DfsException(ErrorCode.Unavailable, $"Failed to read chunk '{chunk.ChunkId}' from any data server: {lastEx?.Message}");
+    }
 
     /// <inheritdoc />
     public Task<UserInfo> CreateUserAsync(string username, string password, CancellationToken cancellationToken = default) =>

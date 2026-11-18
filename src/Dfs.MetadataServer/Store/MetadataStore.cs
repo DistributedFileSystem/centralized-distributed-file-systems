@@ -59,14 +59,15 @@ public sealed class MetadataStore : IMetadataStore, IDisposable
 
     /// <inheritdoc />
     public Task<IReadOnlyList<VersionInfo>> ListVersionsAsync(string itemId, CancellationToken cancellationToken = default) =>
-        Task.FromResult<IReadOnlyList<VersionInfo>>(Array.Empty<VersionInfo>());
+        Read(() => _state.ListVersions(itemId));
 
     /// <inheritdoc />
     public Task<IReadOnlyList<ChunkRecord>> GetVersionChunksAsync(string itemId, int version, CancellationToken cancellationToken = default) =>
-        Task.FromResult<IReadOnlyList<ChunkRecord>>(Array.Empty<ChunkRecord>());
+        Read(() => _state.GetVersionChunks(itemId, version));
 
     /// <inheritdoc />
-    public Task<UploadRecord?> FindUploadAsync(string uploadId, CancellationToken cancellationToken = default) => Task.FromResult<UploadRecord?>(null);
+    public Task<UploadRecord?> FindUploadAsync(string uploadId, CancellationToken cancellationToken = default) =>
+        Read(() => _state.FindUpload(uploadId));
 
     /// <inheritdoc />
     public Task<UserCredentials?> FindUserByNameAsync(string username, CancellationToken cancellationToken = default) => Read(() => _state.FindUserByName(username));

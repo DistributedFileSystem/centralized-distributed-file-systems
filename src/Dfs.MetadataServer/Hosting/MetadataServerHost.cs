@@ -22,6 +22,7 @@ public sealed class MetadataServerHost : IAsyncDisposable
 {
     private readonly bool _ownsStore;
     private readonly NamespaceHandler _namespaceHandler;
+    private readonly TransferHandler _transferHandler;
     private readonly SessionService _sessions;
     private readonly IAuthorizer? _authorizer;
     private readonly TimeProvider _timeProvider;
@@ -68,6 +69,8 @@ public sealed class MetadataServerHost : IAsyncDisposable
         }
 
         _namespaceHandler = new NamespaceHandler(Store, authorizer);
+        var tokenSigner = new DataTokenSigner(Config.TokenKey, _timeProvider);
+        _transferHandler = new TransferHandler(Store, tokenSigner, authorizer, _timeProvider);
         _sessions = new SessionService(Store, _timeProvider);
     }
 
@@ -402,6 +405,13 @@ public sealed class MetadataServerHost : IAsyncDisposable
                     if (NamespaceHandler.CanHandle(frame.Type))
                     {
                         var response = await _namespaceHandler.HandleAsync(frame, cancellationToken).ConfigureAwait(false);
+                        await FrameCodec.WriteRawFrameAsync(stream, response.Type, response.Payload, cancellationToken).ConfigureAwait(false);
+                        return;
+                    }
+
+                    if (TransferHandler.CanHandle(frame.Type))
+                    {
+                        var response = await _transferHandler.HandleAsync(frame, cancellationToken).ConfigureAwait(false);
                         await FrameCodec.WriteRawFrameAsync(stream, response.Type, response.Payload, cancellationToken).ConfigureAwait(false);
                         return;
                     }

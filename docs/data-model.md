@@ -83,7 +83,9 @@ erDiagram
     text id PK
     text address
     text status
+    int capacity_bytes
     int free_bytes
+    int chunk_count
     text last_heartbeat
   }
 ```

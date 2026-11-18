@@ -208,22 +208,30 @@ internal sealed class SqliteMetadataState : IDisposable
                         "INSERT INTO items (id, parent_id, name, kind, owner_id, current_version, size, modified_at) VALUES ($id, $p, $n, 'File', $o, $v, $s, $t)",
                         ("$id", upload.ItemId), ("$p", upload.ParentId), ("$n", upload.Name), ("$o", upload.CreatedBy),
                         ("$v", newVersion), ("$s", upload.Size), ("$t", Format(c.At)));
+                    // The Owner grant is derived from this command in the same transaction.
+                    Exec("INSERT INTO grants (id, role_id, subject_type, subject_id, item_id) " +
+                         "SELECT $grant, $role, 'User', $owner, $item " +
+                         "WHERE EXISTS (SELECT 1 FROM roles WHERE id = $role) " +
+                         "AND EXISTS (SELECT 1 FROM users WHERE id = $owner)",
+                        ("$grant", "g-owner-" + upload.ItemId), ("$role", BuiltInRoles.OwnerId),
+                        ("$owner", upload.CreatedBy), ("$item", upload.ItemId));
                 }
 
                 Exec(
                     "INSERT INTO file_versions (item_id, version, size, created_by, created_at) VALUES ($id, $v, $s, $by, $at)",
                     ("$id", upload.ItemId), ("$v", newVersion), ("$s", upload.Size), ("$by", upload.CreatedBy), ("$at", Format(c.At)));
 
-                for (var i = 0; i < c.Checksums.Count; i++)
+                var checksumsByChunkId = c.Checksums.ToDictionary(cs => cs.ChunkId);
+                for (var i = 0; i < upload.Chunks.Count; i++)
                 {
-                    var cs = c.Checksums[i];
                     var planned = upload.Chunks[i];
+                    var cs = checksumsByChunkId[planned.ChunkId];
                     Exec(
                         "INSERT INTO chunks (id, size, sha256) VALUES ($id, $s, $sha) ON CONFLICT(id) DO UPDATE SET size = $s, sha256 = $sha",
                         ("$id", cs.ChunkId), ("$s", cs.Size), ("$sha", cs.Sha256));
                     Exec(
                         "INSERT INTO version_chunks (item_id, version, idx, chunk_id) VALUES ($item, $v, $idx, $chunk)",
-                        ("$item", upload.ItemId), ("$v", newVersion), ("$idx", i), ("$chunk", cs.ChunkId));
+                        ("$item", upload.ItemId), ("$v", newVersion), ("$idx", planned.Index), ("$chunk", cs.ChunkId));
 
                     foreach (var serverAddr in planned.Servers)
                     {
@@ -830,17 +838,29 @@ internal sealed class SqliteMetadataState : IDisposable
         if (c.Checksums.Count != upload.Chunks.Count)
             return CommandResult.Fail(ErrorCode.BadRequest, $"Expected {upload.Chunks.Count} checksums, got {c.Checksums.Count}.");
 
+        var expectedByChunkId = upload.Chunks.ToDictionary(ch => ch.ChunkId);
+        var seenChunkIds = new HashSet<string>(StringComparer.Ordinal);
         long totalSize = 0;
+
         for (var i = 0; i < c.Checksums.Count; i++)
         {
-            var expected = upload.Chunks[i];
             var actual = c.Checksums[i];
-            if (actual.ChunkId != expected.ChunkId)
-                return CommandResult.Fail(ErrorCode.BadRequest, $"ChunkId mismatch at index {i}: expected '{expected.ChunkId}', got '{actual.ChunkId}'.");
-            if (actual.Size < 0)
-                return CommandResult.Fail(ErrorCode.BadRequest, $"Chunk size at index {i} cannot be negative.");
-            if (string.IsNullOrWhiteSpace(actual.Sha256) || actual.Sha256.Length != 64)
-                return CommandResult.Fail(ErrorCode.BadRequest, $"Invalid SHA-256 at index {i}.");
+            if (actual is null)
+                return CommandResult.Fail(ErrorCode.BadRequest, $"Checksum at index {i} cannot be null.");
+            if (string.IsNullOrWhiteSpace(actual.ChunkId))
+                return CommandResult.Fail(ErrorCode.BadRequest, $"ChunkId at index {i} must not be empty.");
+            if (!seenChunkIds.Add(actual.ChunkId))
+                return CommandResult.Fail(ErrorCode.BadRequest, $"Duplicate checksum for chunk '{actual.ChunkId}'.");
+            if (!expectedByChunkId.TryGetValue(actual.ChunkId, out var planned))
+                return CommandResult.Fail(ErrorCode.BadRequest, $"Unexpected chunk '{actual.ChunkId}' for upload.");
+
+            var expectedSize = Math.Min((long)upload.ChunkSize, upload.Size - (long)planned.Index * upload.ChunkSize);
+            if (actual.Size != expectedSize)
+                return CommandResult.Fail(ErrorCode.BadRequest, $"Chunk '{actual.ChunkId}' size mismatch: expected {expectedSize}, got {actual.Size}.");
+
+            if (!IsLowerHex64(actual.Sha256))
+                return CommandResult.Fail(ErrorCode.BadRequest, $"Chunk '{actual.ChunkId}' SHA-256 is not a valid 64-character lowercase hex string.");
+
             totalSize += actual.Size;
         }
 
@@ -864,9 +884,25 @@ internal sealed class SqliteMetadataState : IDisposable
             var sibling = Scalar("SELECT 1 FROM items WHERE parent_id = $p AND name = $n", ("$p", upload.ParentId), ("$n", upload.Name));
             if (sibling is not null)
                 return CommandResult.Fail(ErrorCode.AlreadyExists, $"Item '{upload.Name}' already exists.");
+
+            if (Scalar("SELECT 1 FROM roles WHERE id = $id", ("$id", BuiltInRoles.OwnerId)) is not null &&
+                Scalar("SELECT 1 FROM users WHERE id = $id", ("$id", upload.CreatedBy)) is not null &&
+                Scalar("SELECT 1 FROM grants WHERE id = $id", ("$id", "g-owner-" + upload.ItemId)) is not null)
+                return CommandResult.Fail(ErrorCode.AlreadyExists, "Owner grant id already exists.");
         }
 
         return null;
+    }
+
+    private static bool IsLowerHex64(string? s)
+    {
+        if (string.IsNullOrEmpty(s) || s.Length != 64) return false;
+        foreach (var ch in s)
+        {
+            if (!((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f')))
+                return false;
+        }
+        return true;
     }
 
     private CommandResult? ValidateAbortUpload(CommandAbortUpload c)

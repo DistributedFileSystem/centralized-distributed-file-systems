@@ -121,6 +121,8 @@ public sealed class TransferHandler
 
         if (existingItem is not null)
         {
+            await AuthorizeAsync(userId, Permission.FileWrite, existingItem.Id, cancellationToken).ConfigureAwait(false);
+
             if (existingItem.Kind != ItemKind.File)
             {
                 throw new DfsException(ErrorCode.BadRequest, $"Path '{normalizedPath}' is a folder.");
@@ -131,7 +133,6 @@ public sealed class TransferHandler
                 throw new DfsException(ErrorCode.Conflict, $"BaseVersion {request.BaseVersion} does not match current version {existingItem.CurrentVersion}.", VersionDetails(existingItem.CurrentVersion));
             }
 
-            await AuthorizeAsync(userId, Permission.FileWrite, existingItem.Id, cancellationToken).ConfigureAwait(false);
             itemId = existingItem.Id;
 
             var parentPath = segments.Length == 1 ? "/" : "/" + string.Join('/', segments[..^1]);
@@ -139,15 +140,9 @@ public sealed class TransferHandler
         }
         else
         {
-            if (request.BaseVersion != 0)
-            {
-                throw new DfsException(ErrorCode.Conflict, "BaseVersion must be 0 for a new file.", VersionDetails(0));
-            }
-
             var parentPath = segments.Length == 1 ? "/" : "/" + string.Join('/', segments[..^1]);
             if (parentPath == "/")
             {
-                await AuthorizeAsync(userId, Permission.ItemCreate, null, cancellationToken).ConfigureAwait(false);
                 parentId = SqliteMetadataState.RootId;
             }
             else
@@ -161,9 +156,14 @@ public sealed class TransferHandler
                 {
                     throw new DfsException(ErrorCode.BadRequest, $"Parent path '{parentPath}' is not a folder.");
                 }
-
-                await AuthorizeAsync(userId, Permission.ItemCreate, parent.Id, cancellationToken).ConfigureAwait(false);
                 parentId = parent.Id;
+            }
+
+            await AuthorizeAsync(userId, Permission.ItemCreate, parentId, cancellationToken).ConfigureAwait(false);
+
+            if (request.BaseVersion != 0)
+            {
+                throw new DfsException(ErrorCode.Conflict, "BaseVersion must be 0 for a new file.", VersionDetails(0));
             }
 
             itemId = Guid.NewGuid().ToString("D");
@@ -253,8 +253,15 @@ public sealed class TransferHandler
         }
         else
         {
-            var authFolderId = upload.ParentId == SqliteMetadataState.RootId ? null : upload.ParentId;
-            await AuthorizeAsync(userId, Permission.ItemCreate, authFolderId, cancellationToken).ConfigureAwait(false);
+            if (upload.ParentId != SqliteMetadataState.RootId)
+            {
+                var parent = await _store.FindItemByIdAsync(upload.ParentId, cancellationToken).ConfigureAwait(false);
+                if (parent is null)
+                {
+                    throw new DfsException(ErrorCode.NotFound, "Parent folder no longer exists.");
+                }
+            }
+            await AuthorizeAsync(userId, Permission.ItemCreate, upload.ParentId, cancellationToken).ConfigureAwait(false);
         }
 
         var now = _timeProvider.GetUtcNow().UtcDateTime;
@@ -335,8 +342,15 @@ public sealed class TransferHandler
             throw new DfsException(ErrorCode.NotFound, $"Version {targetVersion} not found for file '{normalizedPath}'.");
         }
 
+        var versions = await _store.ListVersionsAsync(item.Id, cancellationToken).ConfigureAwait(false);
+        var targetVerInfo = versions.FirstOrDefault(v => v.Version == targetVersion);
+        if (targetVerInfo is null)
+        {
+            throw new DfsException(ErrorCode.NotFound, $"Version {targetVersion} not found for file '{normalizedPath}'.");
+        }
+
         var chunkRecords = await _store.GetVersionChunksAsync(item.Id, targetVersion, cancellationToken).ConfigureAwait(false);
-        if (chunkRecords.Count == 0 && item.Size > 0)
+        if (chunkRecords.Count == 0 && targetVerInfo.Size > 0)
         {
             throw new DfsException(ErrorCode.NotFound, $"Version {targetVersion} chunks not found for file '{normalizedPath}'.");
         }
@@ -363,7 +377,7 @@ public sealed class TransferHandler
             totalSize += chunk.Size;
         }
 
-        return new OpenResponse(request.RequestId, item, targetVersion, totalSize, _defaultChunkSize, new ValueList<OpenChunk>(openChunks));
+        return new OpenResponse(request.RequestId, item, targetVersion, targetVerInfo.Size, _defaultChunkSize, new ValueList<OpenChunk>(openChunks));
     }
 
     private async Task<string> ResolveUserAsync(string? requestId, string? session, CancellationToken cancellationToken)

@@ -515,7 +515,9 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
         byte[] fullContent;
         if (content is MemoryStream ms && ms.TryGetBuffer(out var seg))
         {
-            fullContent = seg.ToArray();
+            var offset = seg.Offset + (int)ms.Position;
+            var count = (int)(ms.Length - ms.Position);
+            fullContent = count <= 0 ? Array.Empty<byte>() : seg.Array![offset..(offset + count)];
         }
         else
         {

@@ -95,27 +95,85 @@ public sealed class DfsClientTransferTests : IAsyncDisposable
         var originalBytes = RandomNumberGenerator.GetBytes(payloadSize);
         var originalSha = Convert.ToHexStringLower(SHA256.HashData(originalBytes));
 
-        var progressReports = new List<(long Transferred, long Total)>();
-        var progress = new Progress<(long Transferred, long Total)>(p => progressReports.Add(p));
+        var uploadReports = new List<(long Transferred, long Total)>();
+        var uploadProgress = new Progress<(long Transferred, long Total)>(p => uploadReports.Add(p));
 
         // Upload
         using var uploadStream = new MemoryStream(originalBytes);
-        var commitRes = await _client.UploadFileAsync("/test-5mb.bin", uploadStream, 0, progress);
+        var commitRes = await _client.UploadFileAsync("/test-5mb.bin", uploadStream, 0, uploadProgress);
 
         Assert.NotNull(commitRes);
         Assert.Equal(1, commitRes.Version);
         Assert.Equal(payloadSize, commitRes.Item.Size);
+        Assert.NotEmpty(uploadReports);
+        Assert.Equal((payloadSize, payloadSize), uploadReports[^1]);
 
-        // Download
+        // Download with progress
+        var downloadReports = new List<(long Transferred, long Total)>();
+        var downloadProgress = new Progress<(long Transferred, long Total)>(p => downloadReports.Add(p));
+
         using var downloadStream = new MemoryStream();
-        await _client.DownloadFileAsync("/test-5mb.bin", downloadStream);
+        await _client.DownloadFileAsync("/test-5mb.bin", downloadStream, version: 0, progress: downloadProgress);
 
         var downloadedBytes = downloadStream.ToArray();
         Assert.Equal(payloadSize, downloadedBytes.Length);
         Assert.Equal(originalBytes, downloadedBytes);
+        Assert.NotEmpty(downloadReports);
+        Assert.Equal((payloadSize, payloadSize), downloadReports[^1]);
 
         var downloadedSha = Convert.ToHexStringLower(SHA256.HashData(downloadedBytes));
         Assert.Equal(originalSha, downloadedSha);
+    }
+
+    [Fact]
+    public async Task UploadFileAsync_MemoryStreamWithNonZeroPosition_UploadsOnlyRemainingBytes()
+    {
+        await InitializeClusterAsync();
+        Assert.NotNull(_client);
+
+        var buffer = new byte[100];
+        for (var i = 0; i < buffer.Length; i++) buffer[i] = (byte)(i + 1);
+
+        using var stream = new MemoryStream(buffer);
+        stream.Position = 40; // 60 bytes remain from 40 to 99
+
+        var commitRes = await _client.UploadFileAsync("/offset.txt", stream, 0);
+        Assert.Equal(1, commitRes.Version);
+        Assert.Equal(60, commitRes.Item.Size);
+
+        using var downloadStream = new MemoryStream();
+        await _client.DownloadFileAsync("/offset.txt", downloadStream);
+
+        var downloaded = downloadStream.ToArray();
+        Assert.Equal(60, downloaded.Length);
+        Assert.Equal(buffer[40..], downloaded);
+    }
+
+    [Fact]
+    public async Task UploadFileAsync_AbortsUploadOnServer_WhenChunkUploadFails()
+    {
+        await InitializeClusterAsync();
+        Assert.NotNull(_client);
+
+        // Register a fake non-existent data server with enormous capacity so chunks are routed there
+        await _store.SubmitAsync(new RegisterDataServer(
+            "ds-unreachable",
+            "127.0.0.1:19999",
+            100L * 1024 * 1024 * 1024,
+            100L * 1024 * 1024 * 1024,
+            DateTime.UtcNow));
+
+        var bytes = new byte[50];
+        using var stream = new MemoryStream(bytes);
+
+        // Upload should fail because chunk cannot be written to unreachable data server
+        await Assert.ThrowsAsync<DfsException>(() =>
+            _client.UploadFileAsync("/failing-upload.bin", stream, 0));
+
+        // Verify that in-flight uploads on metadata store have been cleaned up via AbortUpload
+        // No upload record should remain for /failing-upload.bin
+        var item = await _store.FindItemByPathAsync("/failing-upload.bin");
+        Assert.Null(item);
     }
 
     [Fact]

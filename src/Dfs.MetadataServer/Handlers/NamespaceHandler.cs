@@ -159,8 +159,10 @@ public sealed class NamespaceHandler
             throw new DfsException(ErrorCode.BadRequest, $"Invalid folder path '{request.Path}'.");
         }
 
-        var (parentId, parentAuthId) = await ResolveFolderAsync(parentPath, cancellationToken).ConfigureAwait(false);
-        await AuthorizeAsync(userId, Permission.ItemCreate, parentAuthId ?? SqliteMetadataState.RootId, cancellationToken).ConfigureAwait(false);
+        var parent = parentPath == "/" ? null : await FindRequiredItemAsync(parentPath, cancellationToken).ConfigureAwait(false);
+        await AuthorizeAsync(userId, Permission.ItemCreate, parent?.Id ?? SqliteMetadataState.RootId, cancellationToken).ConfigureAwait(false);
+        EnsureFolder(parent, parentPath);
+        var parentId = parent?.Id ?? SqliteMetadataState.RootId;
 
         var itemId = "i-" + Guid.NewGuid().ToString("N");
         var cmd = new CommandCreateFolder(itemId, parentId, name, userId, DateTime.UtcNow);
@@ -209,10 +211,12 @@ public sealed class NamespaceHandler
         }
 
         var item = await FindRequiredItemAsync(request.Path, cancellationToken).ConfigureAwait(false);
-        var (newParentId, destAuthId) = await ResolveFolderAsync(request.NewParentPath, cancellationToken).ConfigureAwait(false);
-
         await AuthorizeAsync(userId, Permission.ItemRename, item.Id, cancellationToken).ConfigureAwait(false);
-        await AuthorizeAsync(userId, Permission.ItemCreate, destAuthId ?? SqliteMetadataState.RootId, cancellationToken).ConfigureAwait(false);
+        var destination = request.NewParentPath == "/" ? null :
+            await FindRequiredItemAsync(request.NewParentPath, cancellationToken).ConfigureAwait(false);
+        await AuthorizeAsync(userId, Permission.ItemCreate, destination?.Id ?? SqliteMetadataState.RootId, cancellationToken).ConfigureAwait(false);
+        EnsureFolder(destination, request.NewParentPath);
+        var newParentId = destination?.Id ?? SqliteMetadataState.RootId;
 
         var cmd = new MoveItem(item.Id, newParentId, DateTime.UtcNow);
         await SubmitOrThrowAsync(cmd, "Failed to move item.", cancellationToken).ConfigureAwait(false);
@@ -270,22 +274,12 @@ public sealed class NamespaceHandler
         await _store.FindItemByPathAsync(path, cancellationToken).ConfigureAwait(false)
         ?? throw new DfsException(ErrorCode.NotFound, $"Path '{path}' not found.");
 
-    private async Task<(string FolderId, string? AuthItemId)> ResolveFolderAsync(string path, CancellationToken cancellationToken)
+    private static void EnsureFolder(ItemInfo? folder, string path)
     {
-        if (path == "/")
-        {
-            return (SqliteMetadataState.RootId, null);
-        }
-
-        var folder = await _store.FindItemByPathAsync(path, cancellationToken).ConfigureAwait(false)
-            ?? throw new DfsException(ErrorCode.NotFound, $"Folder '{path}' not found.");
-
-        if (folder.Kind != ItemKind.Folder)
+        if (folder is not null && folder.Kind != ItemKind.Folder)
         {
             throw new DfsException(ErrorCode.BadRequest, $"Path '{path}' is not a folder.");
         }
-
-        return (folder.Id, folder.Id);
     }
 
     private async Task AuthorizeAsync(string userId, string permission, string? itemId, CancellationToken cancellationToken)

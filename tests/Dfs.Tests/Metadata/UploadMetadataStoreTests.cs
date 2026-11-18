@@ -73,6 +73,8 @@ public sealed class UploadMetadataStoreTests : IDisposable
     [Fact]
     public async Task BeginUpload_ConflictWhenFileExistsAndBaseVersionMismatch()
     {
+        await _store.SubmitAsync(new RegisterDataServer("ds-1", "127.0.0.1:7001", 10000, 10000, DateTime.UtcNow));
+
         var uploadId1 = "up-init";
         var itemId = "item-conflict-file";
         var planned1 = new PlannedChunk(0, "c-1", new ValueList<string>(["127.0.0.1:7001"]));

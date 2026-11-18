@@ -281,8 +281,6 @@ public class DfsClientTests : IAsyncDisposable
     {
         var client = Register(new DfsClient("127.0.0.1:7000"));
 
-        await Assert.ThrowsAsync<NotSupportedException>(() => client.UploadFileAsync("/f", Stream.Null, 0));
-        await Assert.ThrowsAsync<NotSupportedException>(() => client.DownloadFileAsync("/f", Stream.Null));
         await Assert.ThrowsAsync<NotSupportedException>(() => client.CreateUserAsync("u", "p"));
         await Assert.ThrowsAsync<NotSupportedException>(() => client.ListUsersAsync());
         await Assert.ThrowsAsync<NotSupportedException>(() => client.SetUserDisabledAsync("u", true));

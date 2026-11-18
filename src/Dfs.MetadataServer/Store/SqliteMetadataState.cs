@@ -189,9 +189,12 @@ internal sealed class SqliteMetadataState : IDisposable
 
                     foreach (var serverAddr in planned.Servers)
                     {
-                        var serverId = Scalar("SELECT id FROM data_servers WHERE address = $addr OR id = $addr", ("$addr", serverAddr)) as string ?? serverAddr;
-                        Exec("INSERT OR IGNORE INTO chunk_locations (chunk_id, server_id) VALUES ($c, $s)", ("$c", cs.ChunkId), ("$s", serverId));
-                        Exec("UPDATE data_servers SET chunk_count = chunk_count + 1, free_bytes = MAX(0, free_bytes - $size) WHERE id = $s", ("$size", cs.Size), ("$s", serverId));
+                        var serverId = Scalar("SELECT id FROM data_servers WHERE address = $addr OR id = $addr", ("$addr", serverAddr)) as string;
+                        if (serverId is not null)
+                        {
+                            Exec("INSERT OR IGNORE INTO chunk_locations (chunk_id, server_id) VALUES ($c, $s)", ("$c", cs.ChunkId), ("$s", serverId));
+                            Exec("UPDATE data_servers SET chunk_count = chunk_count + 1, free_bytes = MAX(0, free_bytes - $size) WHERE id = $s", ("$size", cs.Size), ("$s", serverId));
+                        }
                     }
                 }
 

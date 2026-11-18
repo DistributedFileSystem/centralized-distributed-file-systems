@@ -550,6 +550,7 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
         // Step 2: Transfer chunks in parallel
         var checksums = new ChecksumInfo[uploadChunks.Count];
         long bytesTransferred = 0;
+        var uploadProgressLock = new object();
 
         try
         {
@@ -569,8 +570,11 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
                 var checksum = await WriteChunkToDataServerAsync(chunk, chunkData, expectedSha, ct).ConfigureAwait(false);
                 checksums[chunk.Index] = checksum;
 
-                var uploaded = Interlocked.Add(ref bytesTransferred, count);
-                progress?.Report((uploaded, totalSize));
+                lock (uploadProgressLock)
+                {
+                    bytesTransferred += count;
+                    progress?.Report((bytesTransferred, totalSize));
+                }
             }).ConfigureAwait(false);
         }
         catch
@@ -693,6 +697,7 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
         // Step 2: Download chunks in parallel
         var chunkBuffers = new byte[chunks.Count][];
         long bytesDownloaded = 0;
+        var downloadProgressLock = new object();
 
         var parallelOptions = new ParallelOptions
         {
@@ -705,8 +710,11 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
             var data = await ReadChunkFromDataServerAsync(chunk, ct).ConfigureAwait(false);
             chunkBuffers[chunk.Index] = data;
 
-            var downloaded = Interlocked.Add(ref bytesDownloaded, data.Length);
-            progress?.Report((downloaded, totalSize));
+            lock (downloadProgressLock)
+            {
+                bytesDownloaded += data.Length;
+                progress?.Report((bytesDownloaded, totalSize));
+            }
         }).ConfigureAwait(false);
 
         // Step 3: Write sequentially to destination

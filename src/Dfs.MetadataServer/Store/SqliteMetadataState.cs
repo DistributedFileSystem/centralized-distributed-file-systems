@@ -1,6 +1,8 @@
 using System.Globalization;
+using System.Text.Json;
 using Dfs.MetadataServer.Handlers;
 using Dfs.Shared.Commands;
+using Dfs.Shared.Framing;
 using Dfs.Shared.Messages;
 using Dfs.Shared.Metadata;
 using Dfs.Shared.Security;
@@ -15,6 +17,9 @@ using SetGroupMember = Dfs.Shared.Commands.SetGroupMember;
 using UpdateRole = Dfs.Shared.Commands.UpdateRole;
 using RevokeGrant = Dfs.Shared.Commands.RevokeGrant;
 using SetUserDisabled = Dfs.Shared.Commands.SetUserDisabled;
+using CommandBeginUpload = Dfs.Shared.Commands.BeginUpload;
+using CommandCommitUpload = Dfs.Shared.Commands.CommitUpload;
+using CommandAbortUpload = Dfs.Shared.Commands.AbortUpload;
 using Microsoft.Data.Sqlite;
 
 namespace Dfs.MetadataServer.Store;
@@ -67,6 +72,9 @@ internal sealed class SqliteMetadataState : IDisposable
         DeleteSession => null,
         RegisterDataServer c => ValidateRegisterDataServer(c),
         UpdateHeartbeat c => ValidateUpdateHeartbeat(c),
+        CommandBeginUpload c => ValidateBeginUpload(c),
+        CommandCommitUpload c => ValidateCommitUpload(c),
+        CommandAbortUpload c => ValidateAbortUpload(c),
         _ => CommandResult.Fail(ErrorCode.BadRequest, $"Unsupported command {command.GetType().Name}."),
     };
 
@@ -172,6 +180,81 @@ internal sealed class SqliteMetadataState : IDisposable
                     """,
                     ("$id", c.NodeId), ("$free", c.FreeBytes), ("$chunks", c.ChunkCount), ("$t", Format(c.At)));
                 break;
+            case CommandBeginUpload c:
+                var chunksJson = JsonSerializer.Serialize(c.Chunks.ToList(), FrameSerialization.JsonOptions);
+                Exec(
+                    """
+                    INSERT INTO uploads (id, item_id, parent_id, name, base_version, size, chunk_size, created_by, created_at, chunks_json)
+                    VALUES ($id, $item, $parent, $name, $base, $size, $chunkSize, $by, $at, $json)
+                    """,
+                    ("$id", c.UploadId), ("$item", c.ItemId), ("$parent", c.ParentId), ("$name", c.Name),
+                    ("$base", c.BaseVersion), ("$size", c.Size), ("$chunkSize", c.ChunkSize),
+                    ("$by", c.CreatedBy), ("$at", Format(c.At)), ("$json", chunksJson));
+                break;
+            case CommandCommitUpload c:
+                var upload = FindUpload(c.UploadId);
+                if (upload is null) throw new InvalidOperationException($"Upload '{c.UploadId}' not found during apply.");
+                var newVersion = upload.BaseVersion + 1;
+                var itemExists = Scalar("SELECT 1 FROM items WHERE id = $id", ("$id", upload.ItemId)) is not null;
+                if (itemExists)
+                {
+                    Exec(
+                        "UPDATE items SET current_version = $v, size = $s, modified_at = $t WHERE id = $id",
+                        ("$v", newVersion), ("$s", upload.Size), ("$t", Format(c.At)), ("$id", upload.ItemId));
+                }
+                else
+                {
+                    Exec(
+                        "INSERT INTO items (id, parent_id, name, kind, owner_id, current_version, size, modified_at) VALUES ($id, $p, $n, 'File', $o, $v, $s, $t)",
+                        ("$id", upload.ItemId), ("$p", upload.ParentId), ("$n", upload.Name), ("$o", upload.CreatedBy),
+                        ("$v", newVersion), ("$s", upload.Size), ("$t", Format(c.At)));
+                    // The Owner grant is derived from this command in the same transaction.
+                    Exec("INSERT INTO grants (id, role_id, subject_type, subject_id, item_id) " +
+                         "SELECT $grant, $role, 'User', $owner, $item " +
+                         "WHERE EXISTS (SELECT 1 FROM roles WHERE id = $role) " +
+                         "AND EXISTS (SELECT 1 FROM users WHERE id = $owner)",
+                        ("$grant", "g-owner-" + upload.ItemId), ("$role", BuiltInRoles.OwnerId),
+                        ("$owner", upload.CreatedBy), ("$item", upload.ItemId));
+                }
+
+                Exec(
+                    "INSERT INTO file_versions (item_id, version, size, created_by, created_at) VALUES ($id, $v, $s, $by, $at)",
+                    ("$id", upload.ItemId), ("$v", newVersion), ("$s", upload.Size), ("$by", upload.CreatedBy), ("$at", Format(c.At)));
+
+                var checksumsByChunkId = c.Checksums.ToDictionary(cs => cs.ChunkId);
+                for (var i = 0; i < upload.Chunks.Count; i++)
+                {
+                    var planned = upload.Chunks[i];
+                    var cs = checksumsByChunkId[planned.ChunkId];
+                    Exec(
+                        "INSERT INTO chunks (id, size, sha256) VALUES ($id, $s, $sha) ON CONFLICT(id) DO UPDATE SET size = $s, sha256 = $sha",
+                        ("$id", cs.ChunkId), ("$s", cs.Size), ("$sha", cs.Sha256));
+                    Exec(
+                        "INSERT INTO version_chunks (item_id, version, idx, chunk_id) VALUES ($item, $v, $idx, $chunk)",
+                        ("$item", upload.ItemId), ("$v", newVersion), ("$idx", planned.Index), ("$chunk", cs.ChunkId));
+
+                    foreach (var serverAddr in planned.Servers)
+                    {
+                        var serverId = Scalar("SELECT id FROM data_servers WHERE address = $addr OR id = $addr", ("$addr", serverAddr)) as string;
+                        if (serverId is not null)
+                        {
+                            Exec("INSERT OR IGNORE INTO chunk_locations (chunk_id, server_id) VALUES ($c, $s)", ("$c", cs.ChunkId), ("$s", serverId));
+                            Exec("UPDATE data_servers SET chunk_count = chunk_count + 1, free_bytes = MAX(0, free_bytes - $size) WHERE id = $s", ("$size", cs.Size), ("$s", serverId));
+                        }
+                    }
+                }
+
+                if (c.KeepVersions > 0)
+                {
+                    Exec("DELETE FROM file_versions WHERE item_id = $id AND version <= ($v - $keep)", ("$id", upload.ItemId), ("$v", newVersion), ("$keep", c.KeepVersions));
+                    Exec("DELETE FROM version_chunks WHERE item_id = $id AND version <= ($v - $keep)", ("$id", upload.ItemId), ("$v", newVersion), ("$keep", c.KeepVersions));
+                }
+
+                Exec("DELETE FROM uploads WHERE id = $id", ("$id", c.UploadId));
+                break;
+            case CommandAbortUpload c:
+                Exec("DELETE FROM uploads WHERE id = $id", ("$id", c.UploadId));
+                break;
             default:
                 throw new InvalidOperationException($"Unsupported command {command.GetType().Name}.");
         }
@@ -196,6 +279,92 @@ internal sealed class SqliteMetadataState : IDisposable
 
     public IReadOnlyList<ItemInfo> ListChildren(string folderId) =>
         ReadItems($"SELECT {ItemColumns} FROM items WHERE parent_id = $p ORDER BY name", ("$p", folderId));
+
+    public UploadRecord? FindUpload(string uploadId)
+    {
+        using var cmd = Command("SELECT id, item_id, parent_id, name, created_by, size, base_version, chunk_size, chunks_json FROM uploads WHERE id = $id", ("$id", uploadId));
+        using var r = cmd.ExecuteReader();
+        if (!r.Read()) return null;
+
+        var id = r.GetString(0);
+        var itemId = r.GetString(1);
+        var parentId = r.GetString(2);
+        var name = r.GetString(3);
+        var createdBy = r.GetString(4);
+        var size = r.GetInt64(5);
+        var baseVersion = r.GetInt32(6);
+        var chunkSize = r.GetInt32(7);
+        var chunksJson = r.GetString(8);
+        var chunks = JsonSerializer.Deserialize<List<PlannedChunk>>(chunksJson, FrameSerialization.JsonOptions) ?? new List<PlannedChunk>();
+
+        return new UploadRecord(id, itemId, parentId, name, createdBy, size, baseVersion, chunkSize, new ValueList<PlannedChunk>(chunks));
+    }
+
+    public IReadOnlyList<ChunkRecord> GetVersionChunks(string itemId, int version)
+    {
+        using var cmd = Command("""
+            SELECT vc.idx, c.id, c.size, c.sha256, ds.address
+            FROM version_chunks vc
+            JOIN chunks c ON vc.chunk_id = c.id
+            LEFT JOIN chunk_locations cl ON c.id = cl.chunk_id
+            LEFT JOIN data_servers ds ON cl.server_id = ds.id
+            WHERE vc.item_id = $item AND vc.version = $v
+            ORDER BY vc.idx, ds.address
+            """, ("$item", itemId), ("$v", version));
+
+        using var r = cmd.ExecuteReader();
+        var map = new Dictionary<int, (string ChunkId, long Size, string Sha256, List<string> Servers)>();
+        while (r.Read())
+        {
+            var idx = r.GetInt32(0);
+            var chunkId = r.GetString(1);
+            var size = r.GetInt64(2);
+            var sha256 = r.GetString(3);
+            var addr = r.IsDBNull(4) ? null : r.GetString(4);
+
+            if (!map.TryGetValue(idx, out var entry))
+            {
+                entry = (chunkId, size, sha256, new List<string>());
+                map[idx] = entry;
+            }
+            if (!string.IsNullOrEmpty(addr) && !entry.Servers.Contains(addr))
+            {
+                entry.Servers.Add(addr);
+            }
+        }
+
+        var list = new List<ChunkRecord>(map.Count);
+        foreach (var (idx, entry) in map.OrderBy(kv => kv.Key))
+        {
+            list.Add(new ChunkRecord(idx, entry.ChunkId, entry.Size, entry.Sha256, new ValueList<string>(entry.Servers)));
+        }
+        return list;
+    }
+
+    public IReadOnlyList<VersionInfo> ListVersions(string itemId)
+    {
+        using var cmd = Command("""
+            SELECT fv.version, fv.size, fv.created_by, fv.created_at, COUNT(vc.chunk_id)
+            FROM file_versions fv
+            LEFT JOIN version_chunks vc ON fv.item_id = vc.item_id AND fv.version = vc.version
+            WHERE fv.item_id = $item
+            GROUP BY fv.item_id, fv.version
+            ORDER BY fv.version DESC
+            """, ("$item", itemId));
+
+        using var r = cmd.ExecuteReader();
+        var list = new List<VersionInfo>();
+        while (r.Read())
+        {
+            var version = r.GetInt32(0);
+            var size = r.GetInt64(1);
+            var createdBy = r.GetString(2);
+            var createdAt = Parse(r.GetString(3));
+            var chunkCount = r.GetInt32(4);
+            list.Add(new VersionInfo(version, size, createdBy, createdAt, chunkCount));
+        }
+        return list;
+    }
 
     public UserCredentials? FindUserByName(string username) => ReadUser("username", username);
 
@@ -601,6 +770,157 @@ internal sealed class SqliteMetadataState : IDisposable
         if (c.ItemId is not null && Scalar("SELECT 1 FROM items WHERE id = $id", ("$id", c.ItemId)) is null)
             return CommandResult.Fail(ErrorCode.NotFound, "Grant item not found.");
         return null;
+    }
+
+    private CommandResult? ValidateBeginUpload(CommandBeginUpload c)
+    {
+        if (string.IsNullOrWhiteSpace(c.UploadId))
+            return CommandResult.Fail(ErrorCode.BadRequest, "UploadId must not be empty.");
+        if (string.IsNullOrWhiteSpace(c.ItemId) || c.ItemId == RootId)
+            return CommandResult.Fail(ErrorCode.BadRequest, "ItemId is invalid.");
+        if (string.IsNullOrWhiteSpace(c.ParentId))
+            return CommandResult.Fail(ErrorCode.BadRequest, "ParentId is invalid.");
+        if (string.IsNullOrWhiteSpace(c.Name) || !NamespacePath.IsValidSegment(c.Name))
+            return CommandResult.Fail(ErrorCode.BadRequest, "Invalid file name.");
+        if (string.IsNullOrWhiteSpace(c.CreatedBy))
+            return CommandResult.Fail(ErrorCode.BadRequest, "CreatedBy must not be empty.");
+        if (c.Size < 0)
+            return CommandResult.Fail(ErrorCode.BadRequest, "Size cannot be negative.");
+        if (c.BaseVersion < 0)
+            return CommandResult.Fail(ErrorCode.BadRequest, "BaseVersion cannot be negative.");
+        if (c.ChunkSize <= 0)
+            return CommandResult.Fail(ErrorCode.BadRequest, "ChunkSize must be positive.");
+
+        if (Scalar("SELECT 1 FROM uploads WHERE id = $id", ("$id", c.UploadId)) is not null)
+            return CommandResult.Fail(ErrorCode.AlreadyExists, $"Upload '{c.UploadId}' already exists.");
+
+        if (c.ParentId != RootId)
+        {
+            var parentKind = Scalar("SELECT kind FROM items WHERE id = $v", ("$v", c.ParentId)) as string;
+            if (parentKind is null)
+                return CommandResult.Fail(ErrorCode.NotFound, "Parent folder does not exist.");
+            if (parentKind != nameof(ItemKind.Folder))
+                return CommandResult.Fail(ErrorCode.BadRequest, "Parent is not a folder.");
+        }
+
+        var existingItem = ReadItems($"SELECT {ItemColumns} FROM items WHERE id = $id", ("$id", c.ItemId)).FirstOrDefault();
+        if (existingItem is not null)
+        {
+            if (existingItem.Kind != ItemKind.File)
+                return CommandResult.Fail(ErrorCode.BadRequest, "Item is not a file.");
+            if (existingItem.CurrentVersion != c.BaseVersion)
+                return CommandResult.Fail(ErrorCode.Conflict, $"BaseVersion {c.BaseVersion} does not match current version {existingItem.CurrentVersion}.", VersionDetails(existingItem.CurrentVersion));
+        }
+        else
+        {
+            if (c.BaseVersion != 0)
+                return CommandResult.Fail(ErrorCode.Conflict, "BaseVersion must be 0 for a new file.", VersionDetails(0));
+
+            var sibling = Scalar("SELECT 1 FROM items WHERE parent_id = $p AND name = $n", ("$p", c.ParentId), ("$n", c.Name));
+            if (sibling is not null)
+                return CommandResult.Fail(ErrorCode.AlreadyExists, $"Item '{c.Name}' already exists in parent.");
+        }
+
+        return null;
+    }
+
+    private CommandResult? ValidateCommitUpload(CommandCommitUpload c)
+    {
+        if (string.IsNullOrWhiteSpace(c.UploadId))
+            return CommandResult.Fail(ErrorCode.BadRequest, "UploadId must not be empty.");
+        if (c.Checksums is null)
+            return CommandResult.Fail(ErrorCode.BadRequest, "Checksums must not be null.");
+
+        var upload = FindUpload(c.UploadId);
+        if (upload is null)
+            return CommandResult.Fail(ErrorCode.NotFound, $"Upload '{c.UploadId}' not found.");
+
+        if (c.Checksums.Count != upload.Chunks.Count)
+            return CommandResult.Fail(ErrorCode.BadRequest, $"Expected {upload.Chunks.Count} checksums, got {c.Checksums.Count}.");
+
+        var expectedByChunkId = upload.Chunks.ToDictionary(ch => ch.ChunkId);
+        var seenChunkIds = new HashSet<string>(StringComparer.Ordinal);
+        long totalSize = 0;
+
+        for (var i = 0; i < c.Checksums.Count; i++)
+        {
+            var actual = c.Checksums[i];
+            if (actual is null)
+                return CommandResult.Fail(ErrorCode.BadRequest, $"Checksum at index {i} cannot be null.");
+            if (string.IsNullOrWhiteSpace(actual.ChunkId))
+                return CommandResult.Fail(ErrorCode.BadRequest, $"ChunkId at index {i} must not be empty.");
+            if (!seenChunkIds.Add(actual.ChunkId))
+                return CommandResult.Fail(ErrorCode.BadRequest, $"Duplicate checksum for chunk '{actual.ChunkId}'.");
+            if (!expectedByChunkId.TryGetValue(actual.ChunkId, out var planned))
+                return CommandResult.Fail(ErrorCode.BadRequest, $"Unexpected chunk '{actual.ChunkId}' for upload.");
+
+            var expectedSize = Math.Min((long)upload.ChunkSize, upload.Size - (long)planned.Index * upload.ChunkSize);
+            if (actual.Size != expectedSize)
+                return CommandResult.Fail(ErrorCode.BadRequest, $"Chunk '{actual.ChunkId}' size mismatch: expected {expectedSize}, got {actual.Size}.");
+
+            if (!IsLowerHex64(actual.Sha256))
+                return CommandResult.Fail(ErrorCode.BadRequest, $"Chunk '{actual.ChunkId}' SHA-256 is not a valid 64-character lowercase hex string.");
+
+            totalSize += actual.Size;
+        }
+
+        if (totalSize != upload.Size)
+            return CommandResult.Fail(ErrorCode.BadRequest, $"Total chunk size ({totalSize}) does not match upload size ({upload.Size}).");
+
+        var existingItem = ReadItems($"SELECT {ItemColumns} FROM items WHERE id = $id", ("$id", upload.ItemId)).FirstOrDefault();
+        if (existingItem is not null)
+        {
+            if (existingItem.CurrentVersion != upload.BaseVersion)
+                return CommandResult.Fail(ErrorCode.Conflict, $"File version has changed to {existingItem.CurrentVersion}.", VersionDetails(existingItem.CurrentVersion));
+        }
+        else
+        {
+            if (upload.BaseVersion != 0)
+                return CommandResult.Fail(ErrorCode.Conflict, "File does not exist.", VersionDetails(0));
+
+            if (upload.ParentId != RootId && Scalar("SELECT 1 FROM items WHERE id = $p", ("$p", upload.ParentId)) is null)
+                return CommandResult.Fail(ErrorCode.NotFound, "Parent folder no longer exists.");
+
+            var sibling = Scalar("SELECT 1 FROM items WHERE parent_id = $p AND name = $n", ("$p", upload.ParentId), ("$n", upload.Name));
+            if (sibling is not null)
+                return CommandResult.Fail(ErrorCode.AlreadyExists, $"Item '{upload.Name}' already exists.");
+
+            if (Scalar("SELECT 1 FROM roles WHERE id = $id", ("$id", BuiltInRoles.OwnerId)) is not null &&
+                Scalar("SELECT 1 FROM users WHERE id = $id", ("$id", upload.CreatedBy)) is not null &&
+                Scalar("SELECT 1 FROM grants WHERE id = $id", ("$id", "g-owner-" + upload.ItemId)) is not null)
+                return CommandResult.Fail(ErrorCode.AlreadyExists, "Owner grant id already exists.");
+        }
+
+        return null;
+    }
+
+    private static bool IsLowerHex64(string? s)
+    {
+        if (string.IsNullOrEmpty(s) || s.Length != 64) return false;
+        foreach (var ch in s)
+        {
+            if (!((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f')))
+                return false;
+        }
+        return true;
+    }
+
+    private CommandResult? ValidateAbortUpload(CommandAbortUpload c)
+    {
+        if (string.IsNullOrWhiteSpace(c.UploadId))
+            return CommandResult.Fail(ErrorCode.BadRequest, "UploadId must not be empty.");
+        if (Scalar("SELECT 1 FROM uploads WHERE id = $id", ("$id", c.UploadId)) is null)
+            return CommandResult.Fail(ErrorCode.NotFound, $"Upload '{c.UploadId}' not found.");
+        return null;
+    }
+
+    private static Dictionary<string, JsonElement> VersionDetails(int currentVersion)
+    {
+        using var doc = JsonDocument.Parse($"{{\"currentVersion\":{currentVersion}}}");
+        return new Dictionary<string, JsonElement>
+        {
+            ["currentVersion"] = doc.RootElement.GetProperty("currentVersion").Clone()
+        };
     }
 
     private List<ItemInfo> ReadItems(string sql, params (string, object)[] args)

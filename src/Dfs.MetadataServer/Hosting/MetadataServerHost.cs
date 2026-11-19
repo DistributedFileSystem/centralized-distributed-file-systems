@@ -24,7 +24,7 @@ public sealed class MetadataServerHost : IAsyncDisposable
     private readonly NamespaceHandler _namespaceHandler;
     private readonly TransferHandler _transferHandler;
     private readonly SessionService _sessions;
-    private readonly IAuthorizer? _authorizer;
+    private readonly IAuthorizer _authorizer;
     private readonly TimeProvider _timeProvider;
     private readonly ConcurrentDictionary<Task, bool> _activeConnections = new();
     private TcpListener? _listener;
@@ -49,12 +49,11 @@ public sealed class MetadataServerHost : IAsyncDisposable
     /// </summary>
     /// <param name="config">The configuration parameters.</param>
     /// <param name="store">Optional existing store instance; if null, creates a default MetadataStore.</param>
-    /// <param name="authorizer">Optional authorizer used to enforce RBAC permissions on incoming requests.</param>
+    /// <param name="authorizer">Optional override for the default RBAC authorizer.</param>
     /// <param name="timeProvider">Optional time provider used for timestamps and heartbeat monitoring.</param>
     public MetadataServerHost(MetadataServerConfig config, IMetadataStore? store = null, IAuthorizer? authorizer = null, TimeProvider? timeProvider = null)
     {
         Config = config;
-        _authorizer = authorizer;
         _timeProvider = timeProvider ?? TimeProvider.System;
         if (store is not null)
         {
@@ -68,9 +67,10 @@ public sealed class MetadataServerHost : IAsyncDisposable
             _ownsStore = true;
         }
 
-        _namespaceHandler = new NamespaceHandler(Store, authorizer);
+        _authorizer = authorizer ?? new RbacAuthorizer(Store);
+        _namespaceHandler = new NamespaceHandler(Store, _authorizer);
         var tokenSigner = new DataTokenSigner(Config.TokenKey, _timeProvider);
-        _transferHandler = new TransferHandler(Store, tokenSigner, authorizer, _timeProvider);
+        _transferHandler = new TransferHandler(Store, tokenSigner, _authorizer, _timeProvider);
         _sessions = new SessionService(Store, _timeProvider);
     }
 
@@ -388,12 +388,9 @@ public sealed class MetadataServerHost : IAsyncDisposable
                         throw new DfsException(ErrorCode.BadRequest, "RequestId must not be empty.");
 
                     var user = await _sessions.RequireActiveUserAsync(request.Session, cancellationToken).ConfigureAwait(false);
-                    if (_authorizer is not null)
-                    {
-                        var auth = await _authorizer.AuthorizeAsync(user.Id, Permission.ClusterView, null, cancellationToken).ConfigureAwait(false);
-                        if (!auth.Allowed)
-                            throw new DfsException(ErrorCode.Forbidden, "Forbidden: requires cluster.view permission.");
-                    }
+                    var auth = await _authorizer.AuthorizeAsync(user.Id, Permission.ClusterView, null, cancellationToken).ConfigureAwait(false);
+                    if (!auth.Allowed)
+                        throw new DfsException(ErrorCode.Forbidden, "Forbidden: requires cluster.view permission.");
 
                     var servers = await Store.ListDataServersAsync(cancellationToken).ConfigureAwait(false);
                     var response = new ClusterStatusResponse(request.RequestId, new ValueList<DataServerInfo>(servers));

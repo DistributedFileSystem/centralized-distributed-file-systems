@@ -96,7 +96,7 @@ public sealed class DfsClientTransferTests : IAsyncDisposable
         var originalSha = Convert.ToHexStringLower(SHA256.HashData(originalBytes));
 
         var uploadReports = new List<(long Transferred, long Total)>();
-        var uploadProgress = new Progress<(long Transferred, long Total)>(p => uploadReports.Add(p));
+        var uploadProgress = new SynchronousProgress<(long Transferred, long Total)>(uploadReports.Add);
 
         // Upload
         using var uploadStream = new MemoryStream(originalBytes);
@@ -110,7 +110,7 @@ public sealed class DfsClientTransferTests : IAsyncDisposable
 
         // Download with progress
         var downloadReports = new List<(long Transferred, long Total)>();
-        var downloadProgress = new Progress<(long Transferred, long Total)>(p => downloadReports.Add(p));
+        var downloadProgress = new SynchronousProgress<(long Transferred, long Total)>(downloadReports.Add);
 
         using var downloadStream = new MemoryStream();
         await _client.DownloadFileAsync("/test-5mb.bin", downloadStream, version: 0, progress: downloadProgress);
@@ -254,5 +254,10 @@ public sealed class DfsClientTransferTests : IAsyncDisposable
         catch
         {
         }
+    }
+
+    private sealed class SynchronousProgress<T>(Action<T> report) : IProgress<T>
+    {
+        public void Report(T value) => report(value);
     }
 }

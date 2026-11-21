@@ -59,13 +59,15 @@ public sealed class IsolatedClusterFixture : IAsyncLifetime
         Directory.CreateDirectory(_dataDir2);
 
         // 2. Start dedicated Metadata Server on ephemeral port (LISTEN_PORT=0)
-        var metaPsi = new ProcessStartInfo("dotnet", $"\"{metaDll}\"")
+        var metaPsi = new ProcessStartInfo("dotnet")
         {
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
-            CreateNoWindow = true
+            CreateNoWindow = true,
+            WorkingDirectory = Path.GetDirectoryName(metaDll)!
         };
+        metaPsi.ArgumentList.Add(metaDll);
 
         metaPsi.EnvironmentVariables["NODE_ROLE"] = "metadata";
         metaPsi.EnvironmentVariables["NODE_ID"] = "meta-iso";
@@ -127,13 +129,15 @@ public sealed class IsolatedClusterFixture : IAsyncLifetime
 
     private Process StartDataServerProcess(string dataDll, string nodeId, int listenPort, string dataDir)
     {
-        var psi = new ProcessStartInfo("dotnet", $"\"{dataDll}\"")
+        var psi = new ProcessStartInfo("dotnet")
         {
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
-            CreateNoWindow = true
+            CreateNoWindow = true,
+            WorkingDirectory = Path.GetDirectoryName(dataDll)!
         };
+        psi.ArgumentList.Add(dataDll);
 
         psi.EnvironmentVariables["NODE_ROLE"] = "data";
         psi.EnvironmentVariables["NODE_ID"] = nodeId;
@@ -326,12 +330,54 @@ public sealed class IsolatedClusterFixture : IAsyncLifetime
 
     private static string ResolveDll(string slnDir, string projectName)
     {
-        var debugDll = Path.Combine(slnDir, "src", projectName, "bin", "Debug", "net10.0", $"{projectName}.dll");
-        var releaseDll = Path.Combine(slnDir, "src", projectName, "bin", "Release", "net10.0", $"{projectName}.dll");
+        var candidates = new List<string>();
 
-        if (File.Exists(releaseDll)) return releaseDll;
-        if (File.Exists(debugDll)) return debugDll;
+        // 1. Determine active configuration (Debug / Release) and TFM from the executing test assembly
+        var baseDir = new DirectoryInfo(AppContext.BaseDirectory);
+        var tfm = !string.IsNullOrWhiteSpace(baseDir.Name) ? baseDir.Name : "net10.0";
+        var config = baseDir.Parent?.Name;
 
-        throw new FileNotFoundException($"{projectName}.dll was not found at '{debugDll}' or '{releaseDll}'. Ensure solution is built first.");
+        if (string.Equals(config, "Release", StringComparison.OrdinalIgnoreCase))
+        {
+            candidates.Add(Path.Combine(slnDir, "src", projectName, "bin", "Release", tfm, $"{projectName}.dll"));
+            candidates.Add(Path.Combine(slnDir, "src", projectName, "bin", "Release", "net10.0", $"{projectName}.dll"));
+            candidates.Add(Path.Combine(slnDir, "src", projectName, "bin", "Debug", tfm, $"{projectName}.dll"));
+            candidates.Add(Path.Combine(slnDir, "src", projectName, "bin", "Debug", "net10.0", $"{projectName}.dll"));
+        }
+        else if (string.Equals(config, "Debug", StringComparison.OrdinalIgnoreCase))
+        {
+            candidates.Add(Path.Combine(slnDir, "src", projectName, "bin", "Debug", tfm, $"{projectName}.dll"));
+            candidates.Add(Path.Combine(slnDir, "src", projectName, "bin", "Debug", "net10.0", $"{projectName}.dll"));
+            candidates.Add(Path.Combine(slnDir, "src", projectName, "bin", "Release", tfm, $"{projectName}.dll"));
+            candidates.Add(Path.Combine(slnDir, "src", projectName, "bin", "Release", "net10.0", $"{projectName}.dll"));
+        }
+        else
+        {
+            if (!string.IsNullOrEmpty(config))
+            {
+                candidates.Add(Path.Combine(slnDir, "src", projectName, "bin", config, tfm, $"{projectName}.dll"));
+            }
+            candidates.Add(Path.Combine(slnDir, "src", projectName, "bin", "Release", "net10.0", $"{projectName}.dll"));
+            candidates.Add(Path.Combine(slnDir, "src", projectName, "bin", "Debug", "net10.0", $"{projectName}.dll"));
+        }
+
+        // 2. Output directory of the test runner (if copied by project reference alongside its runtimeconfig)
+        var baseDirDll = Path.Combine(AppContext.BaseDirectory, $"{projectName}.dll");
+        var baseDirRuntimeConfig = Path.Combine(AppContext.BaseDirectory, $"{projectName}.runtimeconfig.json");
+        if (File.Exists(baseDirDll) && File.Exists(baseDirRuntimeConfig))
+        {
+            candidates.Add(baseDirDll);
+        }
+
+        foreach (var candidate in candidates.Distinct())
+        {
+            if (File.Exists(candidate))
+            {
+                return Path.GetFullPath(candidate);
+            }
+        }
+
+        throw new FileNotFoundException(
+            $"{projectName}.dll was not found at any candidate path: [{string.Join(", ", candidates)}]. Ensure solution is built first.");
     }
 }

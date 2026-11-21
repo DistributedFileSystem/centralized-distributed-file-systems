@@ -59,14 +59,15 @@ public sealed class MetadataStore : IMetadataStore, IDisposable
 
     /// <inheritdoc />
     public Task<IReadOnlyList<VersionInfo>> ListVersionsAsync(string itemId, CancellationToken cancellationToken = default) =>
-        Task.FromResult<IReadOnlyList<VersionInfo>>(Array.Empty<VersionInfo>());
+        Read(() => _state.ListVersions(itemId));
 
     /// <inheritdoc />
     public Task<IReadOnlyList<ChunkRecord>> GetVersionChunksAsync(string itemId, int version, CancellationToken cancellationToken = default) =>
-        Task.FromResult<IReadOnlyList<ChunkRecord>>(Array.Empty<ChunkRecord>());
+        Read(() => _state.GetVersionChunks(itemId, version));
 
     /// <inheritdoc />
-    public Task<UploadRecord?> FindUploadAsync(string uploadId, CancellationToken cancellationToken = default) => Task.FromResult<UploadRecord?>(null);
+    public Task<UploadRecord?> FindUploadAsync(string uploadId, CancellationToken cancellationToken = default) =>
+        Read(() => _state.FindUpload(uploadId));
 
     /// <inheritdoc />
     public Task<UserCredentials?> FindUserByNameAsync(string username, CancellationToken cancellationToken = default) => Read(() => _state.FindUserByName(username));
@@ -79,7 +80,7 @@ public sealed class MetadataStore : IMetadataStore, IDisposable
 
     /// <inheritdoc />
     public Task<IReadOnlyList<GroupInfo>> ListGroupsAsync(CancellationToken cancellationToken = default) =>
-        Task.FromResult<IReadOnlyList<GroupInfo>>(Array.Empty<GroupInfo>());
+        Read(() => _state.ListGroups());
 
     /// <inheritdoc />
     public Task<IReadOnlyList<RoleInfo>> ListRolesAsync(CancellationToken cancellationToken = default) =>
@@ -94,7 +95,20 @@ public sealed class MetadataStore : IMetadataStore, IDisposable
 
     /// <inheritdoc />
     public Task<IReadOnlyList<DataServerInfo>> ListDataServersAsync(CancellationToken cancellationToken = default) =>
-        Task.FromResult<IReadOnlyList<DataServerInfo>>(Array.Empty<DataServerInfo>());
+        Read(() => _state.ListDataServers());
+
+    /// <summary>Marks alive Data Servers as Dead if their last heartbeat was before the cutoff.</summary>
+    public int MarkDeadServers(DateTime cutoff)
+    {
+        lock (_gate)
+        {
+            return _state.MarkDeadServers(cutoff);
+        }
+    }
+
+    /// <summary>Finds a registered Data Server by id.</summary>
+    public Task<DataServerInfo?> FindDataServerByIdAsync(string nodeId, CancellationToken cancellationToken = default) =>
+        Read(() => _state.FindDataServerById(nodeId));
 
     /// <inheritdoc />
     public Task<IReadOnlyList<AuditEntry>> ListAuditAsync(DateTime? from, DateTime? to, string? userId, int limit, CancellationToken cancellationToken = default) =>

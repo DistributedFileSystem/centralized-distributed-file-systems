@@ -8,6 +8,9 @@ using CreateUser = Dfs.Shared.Commands.CreateUser;
 using DeleteItem = Dfs.Shared.Commands.DeleteItem;
 using MoveItem = Dfs.Shared.Commands.MoveItem;
 using RenameItem = Dfs.Shared.Commands.RenameItem;
+using CommandBeginUpload = Dfs.Shared.Commands.BeginUpload;
+using CommandCommitUpload = Dfs.Shared.Commands.CommitUpload;
+using CommandAbortUpload = Dfs.Shared.Commands.AbortUpload;
 
 namespace Dfs.MetadataServer.Store;
 
@@ -29,10 +32,19 @@ internal sealed class OpLog
         ["DeleteItem"] = typeof(DeleteItem),
         ["CreateUser"] = typeof(CreateUser),
         ["SetUserDisabled"] = typeof(SetUserDisabled),
+        ["CreateGroup"] = typeof(CreateGroup),
+        ["SetGroupMember"] = typeof(SetGroupMember),
         ["CreateRole"] = typeof(CreateRole),
+        ["UpdateRole"] = typeof(UpdateRole),
         ["SetGrant"] = typeof(SetGrant),
+        ["RevokeGrant"] = typeof(RevokeGrant),
         ["CreateSession"] = typeof(CreateSession),
         ["DeleteSession"] = typeof(DeleteSession),
+        ["RegisterDataServer"] = typeof(RegisterDataServer),
+        ["UpdateHeartbeat"] = typeof(UpdateHeartbeat),
+        ["BeginUpload"] = typeof(CommandBeginUpload),
+        ["CommitUpload"] = typeof(CommandCommitUpload),
+        ["AbortUpload"] = typeof(CommandAbortUpload),
     };
 
     private readonly string _path;

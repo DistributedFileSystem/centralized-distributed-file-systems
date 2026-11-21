@@ -106,7 +106,9 @@ public static class MetadataSchema
           id TEXT PRIMARY KEY,
           address TEXT NOT NULL,
           status TEXT NOT NULL,
-          free_bytes INTEGER NOT NULL,
+          capacity_bytes INTEGER NOT NULL DEFAULT 0,
+          free_bytes INTEGER NOT NULL DEFAULT 0,
+          chunk_count INTEGER NOT NULL DEFAULT 0,
           last_heartbeat TEXT NOT NULL
         );
 
@@ -126,11 +128,14 @@ public static class MetadataSchema
         CREATE TABLE IF NOT EXISTS uploads (
           id TEXT PRIMARY KEY,
           item_id TEXT NOT NULL,
+          parent_id TEXT NOT NULL DEFAULT '',
+          name TEXT NOT NULL DEFAULT '',
           base_version INTEGER NOT NULL,
           size INTEGER NOT NULL,
           chunk_size INTEGER NOT NULL,
           created_by TEXT NOT NULL,
-          created_at TEXT NOT NULL
+          created_at TEXT NOT NULL,
+          chunks_json TEXT NOT NULL DEFAULT '[]'
         );
 
         CREATE TABLE IF NOT EXISTS audit_log (

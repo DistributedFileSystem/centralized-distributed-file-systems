@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Dfs.Shared\Dfs.Shared.csproj" />
+    <ProjectReference Include="..\..\src\Dfs.Client.Core\Dfs.Client.Core.csproj" />
   </ItemGroup>
 
 </Project>

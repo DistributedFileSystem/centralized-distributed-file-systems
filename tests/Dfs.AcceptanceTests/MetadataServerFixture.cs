@@ -43,19 +43,20 @@ public sealed class MetadataServerFixture : IAsyncLifetime
         }
 
         // 2. Start an isolated out-of-process Metadata Server
-        var slnDir = FindSolutionDirectory();
-        var targetDll = ResolveMetadataServerDll(slnDir);
+        var targetDll = ResolveMetadataServerDll();
 
         _tempDataDir = Path.Combine(Path.GetTempPath(), "dfs-acc-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_tempDataDir);
 
-        var psi = new ProcessStartInfo("dotnet", $"\"{targetDll}\"")
+        var psi = new ProcessStartInfo("dotnet")
         {
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
-            CreateNoWindow = true
+            CreateNoWindow = true,
+            WorkingDirectory = Path.GetDirectoryName(targetDll) ?? AppContext.BaseDirectory
         };
+        psi.ArgumentList.Add(targetDll);
 
         psi.EnvironmentVariables["NODE_ROLE"] = "metadata";
         psi.EnvironmentVariables["NODE_ID"] = "meta-acc";
@@ -156,7 +157,7 @@ public sealed class MetadataServerFixture : IAsyncLifetime
         }
     }
 
-    private static string FindSolutionDirectory()
+    private static string? TryFindSolutionDirectory()
     {
         var current = new DirectoryInfo(AppContext.BaseDirectory);
         while (current != null)
@@ -168,17 +169,54 @@ public sealed class MetadataServerFixture : IAsyncLifetime
             current = current.Parent;
         }
 
-        throw new InvalidOperationException($"Could not locate Dfs.sln from {AppContext.BaseDirectory}.");
+        return null;
     }
 
-    private static string ResolveMetadataServerDll(string slnDir)
+    private static string ResolveMetadataServerDll()
     {
-        var debugDll = Path.Combine(slnDir, "src", "Dfs.MetadataServer", "bin", "Debug", "net10.0", "Dfs.MetadataServer.dll");
-        var releaseDll = Path.Combine(slnDir, "src", "Dfs.MetadataServer", "bin", "Release", "net10.0", "Dfs.MetadataServer.dll");
+        var candidates = new List<string>();
 
-        if (File.Exists(releaseDll)) return releaseDll;
-        if (File.Exists(debugDll)) return debugDll;
+        // 1. Output directory of test runner (AppContext.BaseDirectory)
+        var baseDirDll = Path.Combine(AppContext.BaseDirectory, "Dfs.MetadataServer.dll");
+        candidates.Add(baseDirDll);
+        if (File.Exists(baseDirDll))
+        {
+            return Path.GetFullPath(baseDirDll);
+        }
 
-        throw new FileNotFoundException($"Dfs.MetadataServer.dll was not found at '{debugDll}' or '{releaseDll}'. Ensure solution is built first.");
+        // 2. Source build output fallback
+        var slnDir = TryFindSolutionDirectory();
+        if (slnDir is not null)
+        {
+            var baseDir = new DirectoryInfo(AppContext.BaseDirectory);
+            var tfm = !string.IsNullOrWhiteSpace(baseDir.Name) ? baseDir.Name : "net10.0";
+            var config = baseDir.Parent?.Name;
+
+            if (string.Equals(config, "Release", StringComparison.OrdinalIgnoreCase))
+            {
+                candidates.Add(Path.Combine(slnDir, "src", "Dfs.MetadataServer", "bin", "Release", tfm, "Dfs.MetadataServer.dll"));
+                candidates.Add(Path.Combine(slnDir, "src", "Dfs.MetadataServer", "bin", "Release", "net10.0", "Dfs.MetadataServer.dll"));
+                candidates.Add(Path.Combine(slnDir, "src", "Dfs.MetadataServer", "bin", "Debug", tfm, "Dfs.MetadataServer.dll"));
+                candidates.Add(Path.Combine(slnDir, "src", "Dfs.MetadataServer", "bin", "Debug", "net10.0", "Dfs.MetadataServer.dll"));
+            }
+            else
+            {
+                candidates.Add(Path.Combine(slnDir, "src", "Dfs.MetadataServer", "bin", "Debug", tfm, "Dfs.MetadataServer.dll"));
+                candidates.Add(Path.Combine(slnDir, "src", "Dfs.MetadataServer", "bin", "Debug", "net10.0", "Dfs.MetadataServer.dll"));
+                candidates.Add(Path.Combine(slnDir, "src", "Dfs.MetadataServer", "bin", "Release", tfm, "Dfs.MetadataServer.dll"));
+                candidates.Add(Path.Combine(slnDir, "src", "Dfs.MetadataServer", "bin", "Release", "net10.0", "Dfs.MetadataServer.dll"));
+            }
+
+            foreach (var candidate in candidates.Distinct())
+            {
+                if (File.Exists(candidate))
+                {
+                    return Path.GetFullPath(candidate);
+                }
+            }
+        }
+
+        throw new FileNotFoundException(
+            $"Dfs.MetadataServer.dll was not found at any candidate path: [{string.Join(", ", candidates.Distinct())}]. Ensure solution or project is built first.");
     }
 }

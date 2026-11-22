@@ -39,6 +39,8 @@ public sealed class FileBrowserViewModel : ViewModelBase
     private string _moveTargetPath = "";
 
     private bool _isPropertiesDialogOpen;
+    private bool _isVersionHistoryDialogOpen;
+    private VersionHistoryViewModel? _versionHistoryVm;
 
     public ObservableCollection<UiFileItem> Items { get; } = [];
     public ObservableCollection<UiDirectoryNode> RootNodes { get; } = [];
@@ -65,12 +67,14 @@ public sealed class FileBrowserViewModel : ViewModelBase
             OnPropertyChanged(nameof(HasSelection));
             OnPropertyChanged(nameof(CanDeleteOrRename));
             OnPropertyChanged(nameof(CanDownload));
+            OnPropertyChanged(nameof(CanOpenVersionHistory));
         }
     }
 
     public bool HasSelection => _selectedItem != null;
     public bool CanDeleteOrRename => _selectedItem != null && !IsLoading;
     public bool CanDownload => _selectedItem != null && !_selectedItem.IsFolder;
+    public bool CanOpenVersionHistory => _selectedItem != null && !_selectedItem.IsFolder;
 
     public string SearchQuery
     {
@@ -195,6 +199,18 @@ public sealed class FileBrowserViewModel : ViewModelBase
         set => SetProperty(ref _isPropertiesDialogOpen, value);
     }
 
+    public bool IsVersionHistoryDialogOpen
+    {
+        get => _isVersionHistoryDialogOpen;
+        set => SetProperty(ref _isVersionHistoryDialogOpen, value);
+    }
+
+    public VersionHistoryViewModel? VersionHistoryVm
+    {
+        get => _versionHistoryVm;
+        set => SetProperty(ref _versionHistoryVm, value);
+    }
+
     // Commands
     public ICommand RefreshCommand { get; }
     public ICommand NavigateUpCommand { get; }
@@ -225,8 +241,12 @@ public sealed class FileBrowserViewModel : ViewModelBase
     public ICommand OpenPropertiesDialogCommand { get; }
     public ICommand ClosePropertiesDialogCommand { get; }
 
+    public ICommand OpenVersionHistoryDialogCommand { get; }
+    public ICommand CloseVersionHistoryDialogCommand { get; }
+
     // Action event for outside listeners (e.g. MainViewModel transfer queue)
     public Action<UiFileItem>? DownloadRequested { get; set; }
+    public Action<string, string, long>? DownloadVersionRequested { get; set; }
 
     public FileBrowserViewModel(IDfsClient client)
     {
@@ -327,6 +347,27 @@ public sealed class FileBrowserViewModel : ViewModelBase
             if (SelectedItem != null) IsPropertiesDialogOpen = true;
         });
         ClosePropertiesDialogCommand = new RelayCommand(() => IsPropertiesDialogOpen = false);
+
+        OpenVersionHistoryDialogCommand = new RelayCommand(param =>
+        {
+            var target = param as UiFileItem ?? SelectedItem;
+            if (target == null || target.IsFolder) return;
+
+            VersionHistoryVm = new VersionHistoryViewModel(
+                _client,
+                target.Path,
+                target.Name,
+                onClose: () => IsVersionHistoryDialogOpen = false,
+                onDownloadVersion: (path, localName, size) =>
+                {
+                    DownloadVersionRequested?.Invoke(path, localName, size);
+                    ShowNotification($"Đã xếp phiên bản '{localName}' vào Hàng đợi truyền tải.", isError: false);
+                });
+
+            IsVersionHistoryDialogOpen = true;
+            _ = VersionHistoryVm.LoadVersionsAsync();
+        });
+        CloseVersionHistoryDialogCommand = new RelayCommand(() => IsVersionHistoryDialogOpen = false);
     }
 
     public async Task LoadDirectoryAsync(string path)

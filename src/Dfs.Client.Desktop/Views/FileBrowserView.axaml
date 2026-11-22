@@ -4,6 +4,7 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="using:Dfs.Client.Desktop.ViewModels"
              xmlns:m="using:Dfs.Client.Desktop.Models"
+             xmlns:views="using:Dfs.Client.Desktop.Views"
              mc:Ignorable="d" d:DesignWidth="1050" d:DesignHeight="700"
              x:Class="Dfs.Client.Desktop.Views.FileBrowserView"
              x:DataType="vm:FileBrowserViewModel">
@@ -183,6 +184,19 @@
                                 FontWeight="SemiBold"
                                 FontSize="12" />
 
+                        <Button Content="📜 Lịch sử"
+                                Command="{Binding OpenVersionHistoryDialogCommand}"
+                                IsEnabled="{Binding CanOpenVersionHistory}"
+                                ToolTip.Tip="Xem lịch sử các phiên bản của tệp tin"
+                                Padding="10,5"
+                                CornerRadius="4"
+                                Background="#F8FAFC"
+                                BorderBrush="#E2E8F0"
+                                BorderThickness="1"
+                                Foreground="#475569"
+                                FontWeight="SemiBold"
+                                FontSize="12" />
+
                         <Button Content="✏️ Đổi tên"
                                 Command="{Binding OpenRenameDialogCommand}"
                                 IsEnabled="{Binding CanDeleteOrRename}"
@@ -289,6 +303,10 @@
                                             <MenuItem Header="⬇ Tải xuống (Download)"
                                                       IsVisible="{Binding !IsFolder}"
                                                       Command="{Binding $parent[UserControl].((vm:FileBrowserViewModel)DataContext).DownloadItemCommand}"
+                                                      CommandParameter="{Binding}" />
+                                            <MenuItem Header="📜 Lịch sử phiên bản..."
+                                                      IsVisible="{Binding !IsFolder}"
+                                                      Command="{Binding $parent[UserControl].((vm:FileBrowserViewModel)DataContext).OpenVersionHistoryDialogCommand}"
                                                       CommandParameter="{Binding}" />
                                             <Separator />
                                             <MenuItem Header="✏️ Đổi tên (F2)"
@@ -537,6 +555,16 @@
                     <Button Content="Đóng" Command="{Binding ClosePropertiesDialogCommand}" Padding="16,6" Background="#F1F5F9" CornerRadius="4" HorizontalAlignment="Right" Margin="0,8,0,0" />
                 </StackPanel>
             </Border>
+        </Border>
+
+        <!-- MODAL OVERLAY: Version History Dialog -->
+        <Border Background="#80000000"
+                IsVisible="{Binding IsVersionHistoryDialogOpen}"
+                HorizontalAlignment="Stretch"
+                VerticalAlignment="Stretch">
+            <views:VersionHistoryView DataContext="{Binding VersionHistoryVm}"
+                                      HorizontalAlignment="Center"
+                                      VerticalAlignment="Center" />
         </Border>
     </Grid>
 </UserControl>

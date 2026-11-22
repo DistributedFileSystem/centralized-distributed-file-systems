@@ -22,4 +22,10 @@ internal static class FakeSamples
     ];
 
     internal static readonly VersionInfo Version = new(1, Content.Length, UserId, ModifiedAt, 1);
+    internal static readonly VersionInfo[] Versions =
+    [
+        new(3, 14_889_779, "an.nguyen", new DateTime(2026, 11, 4, 16, 5, 0, DateTimeKind.Utc), 4),
+        new(2, 12_582_912, "tan.phan", new DateTime(2026, 11, 4, 14, 15, 0, DateTimeKind.Utc), 3),
+        new(1, 10_276_044, "an.nguyen", new DateTime(2026, 11, 3, 20, 30, 0, DateTimeKind.Utc), 3),
+    ];
 }

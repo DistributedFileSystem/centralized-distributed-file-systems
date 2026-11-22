@@ -123,6 +123,8 @@ public sealed class DfsClientTransferTests : IAsyncDisposable
 
         var downloadedSha = Convert.ToHexStringLower(SHA256.HashData(downloadedBytes));
         Assert.Equal(originalSha, downloadedSha);
+        var audit = await _client.ListAuditAsync();
+        Assert.Contains(audit, entry => entry.Action == nameof(MessageType.CommitUpload) && entry.Allowed);
     }
 
     [Fact]

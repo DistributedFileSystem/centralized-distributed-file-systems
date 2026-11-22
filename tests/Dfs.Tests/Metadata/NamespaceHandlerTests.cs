@@ -467,6 +467,8 @@ public sealed class NamespaceHandlerTests : IDisposable
             MessageType.ListDirResponse, new ListDir("filtered-list", Session, "/shared"));
         Assert.Equal(new[] { "/shared/visible" }, listing.Items.Select(item => item.Path));
         Assert.Contains(authorizer.Calls, call => call.Permission == Permission.ItemList && call.ItemId == hidden.Id);
+        Assert.Contains(await host.Store.ListAuditAsync(null, null, null, 100), entry =>
+            entry.Action == nameof(MessageType.ListDir) && entry.Target == "/shared/hidden" && !entry.Allowed);
     }
 
     [Fact]
@@ -490,6 +492,55 @@ public sealed class NamespaceHandlerTests : IDisposable
         var errEmpty = await RequestExpectErrorAsync(
             stream, MessageType.Stat, new Stat("noauth-2", "", "/"));
         Assert.Equal(ErrorCode.Unauthorized, errEmpty.Code);
+    }
+
+    [Fact]
+    public async Task Audit_RecordsAllowedAndDeniedRequests_AndRestrictsListAudit()
+    {
+        var host = await CreateAndStartHostAsync();
+        var (client, stream) = await ConnectAndHelloAsync(host);
+        await using var _ = stream;
+        using var __ = client;
+
+        await RequestAsync<CreateFolder, CreateFolderResponse>(stream, MessageType.CreateFolder,
+            MessageType.CreateFolderResponse, new CreateFolder("audit-create", Session, "/audited"));
+        Assert.True((await new UserCredentialService(host.Store).CreateUserAsync(
+            "u-bob", "bob", "password", DateTime.UtcNow)).Success);
+        Assert.True((await host.Store.SubmitAsync(new CreateSession("bob-audit-session", "u-bob",
+            DateTime.UtcNow.AddHours(1), DateTime.UtcNow))).Success);
+        Assert.Equal(ErrorCode.Forbidden, (await RequestExpectErrorAsync(stream, MessageType.CreateFolder,
+            new CreateFolder("audit-denied", "bob-audit-session", "/denied"))).Code);
+
+        var entries = await RequestAsync<ListAudit, ListAuditResponse>(stream, MessageType.ListAudit,
+            MessageType.ListAuditResponse, new ListAudit("audit-list", Session));
+        Assert.Equal(2, entries.Entries.Count);
+        Assert.Equal("CreateFolder", entries.Entries[0].Action);
+        Assert.False(entries.Entries[0].Allowed);
+        Assert.Equal("/denied", entries.Entries[0].Target);
+        Assert.True(entries.Entries[1].Allowed);
+        Assert.Equal("/audited", entries.Entries[1].Target);
+
+        var filtered = await RequestAsync<ListAudit, ListAuditResponse>(stream, MessageType.ListAudit,
+            MessageType.ListAuditResponse, new ListAudit("audit-filter", Session, UserId: "u-bob", Limit: 1));
+        Assert.Single(filtered.Entries);
+        Assert.False(filtered.Entries[0].Allowed);
+        Assert.Equal(ErrorCode.Forbidden, (await RequestExpectErrorAsync(stream, MessageType.ListAudit,
+            new ListAudit("audit-forbidden", "bob-audit-session"))).Code);
+        Assert.Equal(ErrorCode.BadRequest, (await RequestExpectErrorAsync(stream, MessageType.ListAudit,
+            new ListAudit("audit-invalid-limit", Session, Limit: 1001))).Code);
+
+        Assert.True((await host.Store.SubmitAsync(new SetGrant("g-bob-auditor", BuiltInRoles.AuditorId,
+            SubjectType.User, "u-bob", null, DateTime.UtcNow))).Success);
+        var auditorEntries = await RequestAsync<ListAudit, ListAuditResponse>(stream, MessageType.ListAudit,
+            MessageType.ListAuditResponse, new ListAudit("auditor-list", "bob-audit-session"));
+        Assert.Equal(3, auditorEntries.Entries.Count);
+        Assert.Equal("ListAudit", auditorEntries.Entries[0].Action);
+        Assert.False(auditorEntries.Entries[0].Allowed);
+
+        using var replayed = new MetadataStore(Path.Combine(_tempDir, "oplog.jsonl"),
+            Path.Combine(_tempDir, "audit-replayed.db"));
+        var replayedEntries = await replayed.ListAuditAsync(null, null, null, 100);
+        Assert.Equal(auditorEntries.Entries, replayedEntries);
     }
 
     private sealed class RecordingAuthorizer : IAuthorizer

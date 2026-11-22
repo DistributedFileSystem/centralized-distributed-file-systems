@@ -294,7 +294,6 @@ public class DfsClientTests : IAsyncDisposable
         await Assert.ThrowsAsync<NotSupportedException>(() => client.CreateGrantAsync("r", SubjectType.User, "u"));
         await Assert.ThrowsAsync<NotSupportedException>(() => client.ListGrantsAsync());
         await Assert.ThrowsAsync<NotSupportedException>(() => client.RevokeGrantAsync("g"));
-        await Assert.ThrowsAsync<NotSupportedException>(() => client.ListAuditAsync());
     }
 
     [Fact]

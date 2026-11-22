@@ -81,7 +81,15 @@ public sealed class FakeDfsClient : IDfsClient
     public Task<ItemInfo> MoveAsync(string path, string newParentPath, CancellationToken cancellationToken = default) => Task.FromException<ItemInfo>(Unsupported());
     public Task DeleteItemAsync(string path, CancellationToken cancellationToken = default) => Task.FromException(Unsupported());
     public Task<CommitUploadResponse> UploadFileAsync(string path, Stream content, int baseVersion, CancellationToken cancellationToken = default) => Task.FromException<CommitUploadResponse>(Unsupported());
-    public Task DownloadFileAsync(string path, Stream destination, int version = 0, CancellationToken cancellationToken = default) => Task.FromException(Unsupported());
+    public Task DownloadFileAsync(string path, Stream destination, int version = 0, CancellationToken cancellationToken = default)
+    {
+        RequireLogin(cancellationToken);
+        ArgumentNullException.ThrowIfNull(destination);
+        var item = Find(path);
+        if (item.Kind != ItemKind.File)
+            throw new DfsException(ErrorCode.BadRequest, "Path is not a file.");
+        return destination.WriteAsync(FakeSamples.Content, 0, FakeSamples.Content.Length, cancellationToken);
+    }
     public Task<UserInfo> CreateUserAsync(string username, string password, CancellationToken cancellationToken = default) => Task.FromException<UserInfo>(Unsupported());
     public Task<IReadOnlyList<UserInfo>> ListUsersAsync(CancellationToken cancellationToken = default) => Task.FromException<IReadOnlyList<UserInfo>>(Unsupported());
     public Task SetUserDisabledAsync(string userId, bool disabled, CancellationToken cancellationToken = default) => Task.FromException(Unsupported());

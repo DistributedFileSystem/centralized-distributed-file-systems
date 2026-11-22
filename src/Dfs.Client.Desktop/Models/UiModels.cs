@@ -113,6 +113,7 @@ public sealed class UiChunkItem : INotifyPropertyChanged
     private string _status = "Chờ truyền";
 
     public int ChunkIndex { get; set; }
+    public string ChunkId { get; set; } = "";
     public string ChunkSize { get; set; } = "4.0 MB";
     public string DataServer { get; set; } = "";
     public string Sha256 { get; set; } = "";
@@ -443,6 +444,7 @@ public sealed class UiGrantItem
     public string TargetPath { get; }
     public string InheritText { get; }
     public string SourceText { get; }
+    public bool CanRevoke => !SourceText.StartsWith("Kế thừa", StringComparison.OrdinalIgnoreCase);
 
     public UiGrantItem(GrantInfo raw)
     {
@@ -462,5 +464,68 @@ public sealed class UiGrantItem
         TargetPath = path;
         InheritText = inherit ? "Có" : "Không";
         SourceText = source;
+    }
+}
+
+public sealed class UiVersionItem : INotifyPropertyChanged
+{
+    private bool _isSelected;
+
+    public int Version { get; }
+    public long Size { get; }
+    public string CreatedBy { get; }
+    public DateTime CreatedAt { get; }
+    public int ChunkCount { get; }
+    public bool IsCurrent { get; }
+
+    public string VersionLabel => IsCurrent ? $"v{Version} (Mới nhất)" : $"v{Version}";
+    public string FormattedSize => FormatBytes(Size);
+    public string FormattedCreatedAt => CreatedAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm");
+    public string ActionText => IsCurrent ? "Đang xem" : "Tải về";
+    public bool CanDownload => !IsCurrent;
+    public string ChunkCountText => $"{ChunkCount} chunks";
+
+    public ObservableCollection<UiChunkItem> Chunks { get; } = [];
+
+    public bool IsSelected
+    {
+        get => _isSelected;
+        set
+        {
+            if (_isSelected != value)
+            {
+                _isSelected = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsSelected)));
+            }
+        }
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    public UiVersionItem(VersionInfo raw, bool isCurrent = false)
+    {
+        Version = raw.Version;
+        Size = raw.Size;
+        CreatedBy = raw.CreatedBy;
+        CreatedAt = raw.CreatedAt;
+        ChunkCount = raw.ChunkCount;
+        IsCurrent = isCurrent;
+    }
+
+    public UiVersionItem(int version, long size, string createdBy, DateTime createdAt, int chunkCount, bool isCurrent = false)
+    {
+        Version = version;
+        Size = size;
+        CreatedBy = createdBy;
+        CreatedAt = createdAt;
+        ChunkCount = chunkCount;
+        IsCurrent = isCurrent;
+    }
+
+    private static string FormatBytes(long bytes)
+    {
+        if (bytes < 1024) return $"{bytes} B";
+        if (bytes < 1024 * 1024) return $"{bytes / 1024.0:F1} KB";
+        return $"{bytes / (1024.0 * 1024.0):F2} MB";
     }
 }

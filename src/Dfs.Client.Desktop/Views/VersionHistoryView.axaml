@@ -1,0 +1,230 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Dfs.Client.Desktop.ViewModels"
+             xmlns:models="using:Dfs.Client.Desktop.Models"
+             x:Class="Dfs.Client.Desktop.Views.VersionHistoryView"
+             x:DataType="vm:VersionHistoryViewModel"
+             Background="Transparent">
+
+    <Border Background="#FFFFFF"
+            CornerRadius="8"
+            BorderBrush="#E2E8F0"
+            BorderThickness="1"
+            BoxShadow="0 10 25 0 #25000000"
+            Padding="24"
+            MaxWidth="760"
+            MaxHeight="620">
+        <Grid RowDefinitions="Auto,Auto,Auto,*,Auto,Auto">
+            <!-- Header Row -->
+            <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,12">
+                <StackPanel Grid.Column="0" Spacing="4">
+                    <TextBlock Text="{Binding Title}"
+                               FontSize="18"
+                               FontWeight="Bold"
+                               Foreground="#0F172A" />
+                    <TextBlock Text="{Binding HeaderInfo}"
+                               FontSize="12"
+                               Foreground="#64748B" />
+                    <TextBlock Text="{Binding Subtitle}"
+                               FontSize="11"
+                               FontStyle="Italic"
+                               Foreground="#94A3B8" />
+                </StackPanel>
+
+                <Button Grid.Column="1"
+                        Content="✕"
+                        Command="{Binding CloseCommand}"
+                        Background="Transparent"
+                        Foreground="#64748B"
+                        FontSize="16"
+                        FontWeight="Bold"
+                        Padding="8,4"
+                        Cursor="Hand"
+                        VerticalAlignment="Top" />
+            </Grid>
+
+            <!-- Status Banner -->
+            <Border Grid.Row="1"
+                    IsVisible="{Binding HasStatus}"
+                    CornerRadius="6"
+                    Padding="12,8"
+                    Margin="0,0,0,12"
+                    Background="{Binding StatusIsError, Converter={x:Null}}">
+                <Grid ColumnDefinitions="*,Auto">
+                    <TextBlock Grid.Column="0"
+                               Text="{Binding StatusMessage}"
+                               FontSize="12"
+                               FontWeight="SemiBold"
+                               Foreground="{Binding StatusIsError, Converter={x:Null}}" />
+                    <Button Grid.Column="1"
+                            Content="✕"
+                            Command="{Binding DismissStatusCommand}"
+                            Background="Transparent"
+                            Foreground="#64748B"
+                            FontSize="11"
+                            Padding="4,2" />
+                </Grid>
+            </Border>
+
+            <!-- Version List Header -->
+            <Border Grid.Row="2" Background="#F1F5F9" CornerRadius="6,6,0,0" Padding="12,8" BorderBrush="#E2E8F0" BorderThickness="1,1,1,0">
+                <Grid ColumnDefinitions="120,90,90,110,140,*">
+                    <TextBlock Grid.Column="0" Text="Phiên bản" FontWeight="Bold" FontSize="11" Foreground="#475569" />
+                    <TextBlock Grid.Column="1" Text="Kích thước" FontWeight="Bold" FontSize="11" Foreground="#475569" />
+                    <TextBlock Grid.Column="2" Text="Số chunk" FontWeight="Bold" FontSize="11" Foreground="#475569" />
+                    <TextBlock Grid.Column="3" Text="Người tạo" FontWeight="Bold" FontSize="11" Foreground="#475569" />
+                    <TextBlock Grid.Column="4" Text="Thời gian tạo" FontWeight="Bold" FontSize="11" Foreground="#475569" />
+                    <TextBlock Grid.Column="5" Text="Hành động" FontWeight="Bold" FontSize="11" Foreground="#475569" HorizontalAlignment="Right" />
+                </Grid>
+            </Border>
+
+            <!-- Version List Rows -->
+            <Border Grid.Row="3" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="0,0,6,6" Margin="0,0,0,12">
+                <ListBox ItemsSource="{Binding Versions}"
+                         SelectedItem="{Binding SelectedVersion}"
+                         Background="Transparent"
+                         MaxHeight="180">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate x:DataType="models:UiVersionItem">
+                            <Grid ColumnDefinitions="120,90,90,110,140,*" Margin="4,2">
+                                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                    <Border Background="{Binding IsCurrent, Converter={x:Null}}"
+                                            CornerRadius="4"
+                                            Padding="6,2">
+                                        <TextBlock Text="{Binding VersionLabel}"
+                                                   FontWeight="SemiBold"
+                                                   FontSize="12"
+                                                   Foreground="{Binding IsCurrent, Converter={x:Null}}" />
+                                    </Border>
+                                </StackPanel>
+
+                                <TextBlock Grid.Column="1" Text="{Binding FormattedSize}" FontSize="12" Foreground="#334155" VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="2" Text="{Binding ChunkCountText}" FontSize="12" Foreground="#64748B" VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="3" Text="{Binding CreatedBy}" FontSize="12" Foreground="#334155" VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="4" Text="{Binding FormattedCreatedAt}" FontSize="11" Foreground="#64748B" VerticalAlignment="Center" />
+
+                                <StackPanel Grid.Column="5" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                                    <Button Content="Tải về"
+                                            Command="{Binding $parent[UserControl].((vm:VersionHistoryViewModel)DataContext).DownloadVersionCommand}"
+                                            CommandParameter="{Binding}"
+                                            Padding="10,4"
+                                            FontSize="11"
+                                            FontWeight="SemiBold"
+                                            CornerRadius="4"
+                                            Background="#0066CC"
+                                            Foreground="#FFFFFF"
+                                            Cursor="Hand" />
+                                </StackPanel>
+                            </Grid>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </Border>
+
+            <!-- Verification Detail Pane -->
+            <Border Grid.Row="4"
+                    Background="#F8FAFC"
+                    BorderBrush="#E2E8F0"
+                    BorderThickness="1"
+                    CornerRadius="6"
+                    Padding="14,10"
+                    Margin="0,0,0,12">
+                <StackPanel Spacing="8">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8">
+                            <TextBlock Text="Thông tin kiểm chứng phiên bản:"
+                                       FontWeight="Bold"
+                                       FontSize="12"
+                                       Foreground="#1E293B" />
+                            <TextBlock Text="{Binding SelectedVersionNumberText}"
+                                       FontWeight="Bold"
+                                       FontSize="12"
+                                       Foreground="#0066CC" />
+                            <TextBlock Text="•" Foreground="#94A3B8" />
+                            <TextBlock Text="{Binding SelectedVersionSizeText}"
+                                       FontSize="12"
+                                       Foreground="#475569" />
+                            <TextBlock Text="•" Foreground="#94A3B8" />
+                            <TextBlock Text="{Binding SelectedVersionChunkCountText}"
+                                       FontSize="12"
+                                       Foreground="#64748B" />
+                        </StackPanel>
+
+                        <TextBlock Grid.Column="1"
+                                   Text="Write-Once Immutability (Bất biến)"
+                                   FontSize="11"
+                                   FontWeight="SemiBold"
+                                   Foreground="#059669" />
+                    </Grid>
+
+                    <!-- Chunk Verification Details List -->
+                    <Border Background="#FFFFFF" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="4" MaxHeight="100">
+                        <ScrollViewer VerticalScrollBarVisibility="Auto">
+                            <ItemsControl ItemsSource="{Binding SelectedVersionChunks}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="models:UiChunkItem">
+                                        <Grid ColumnDefinitions="Auto,Auto,Auto,*" Margin="8,4" VerticalAlignment="Center">
+                                            <TextBlock Grid.Column="0"
+                                                       Text="{Binding ChunkIndex, StringFormat='Chunk {0}:'}"
+                                                       FontWeight="SemiBold"
+                                                       FontSize="11"
+                                                       Foreground="#475569"
+                                                       Width="65" />
+                                            <TextBlock Grid.Column="1"
+                                                       Text="{Binding ChunkId}"
+                                                       FontFamily="Consolas,Cascadia Code,Monospace"
+                                                       FontSize="11"
+                                                       Foreground="#0369A1"
+                                                       Width="100" />
+                                            <TextBlock Grid.Column="2"
+                                                       Text="{Binding ChunkSize, StringFormat='({0})'}"
+                                                       FontSize="11"
+                                                       Foreground="#64748B"
+                                                       Width="75" />
+                                            <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="6">
+                                                <TextBlock Text="SHA-256:"
+                                                           FontWeight="SemiBold"
+                                                           FontSize="10"
+                                                           Foreground="#64748B" />
+                                                <TextBlock Text="{Binding Sha256}"
+                                                           FontFamily="Consolas,Cascadia Code,Monospace"
+                                                           FontSize="10"
+                                                           Foreground="#334155"
+                                                           TextTrimming="CharacterEllipsis" />
+                                            </StackPanel>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                    </Border>
+                </StackPanel>
+            </Border>
+
+            <!-- Bottom Actions and Notice -->
+            <Grid Grid.Row="5" ColumnDefinitions="*,Auto">
+                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                    <TextBlock Text="ℹ️" FontSize="12" />
+                    <TextBlock Text="Lưu ý: Tải phiên bản cũ sẽ không ghi đè phiên bản hiện tại trên server."
+                               FontSize="11"
+                               FontStyle="Italic"
+                               Foreground="#64748B"
+                               VerticalAlignment="Center" />
+                </StackPanel>
+
+                <Button Grid.Column="1"
+                        Content="Đóng"
+                        Command="{Binding CloseCommand}"
+                        Padding="20,8"
+                        Background="#F1F5F9"
+                        Foreground="#334155"
+                        FontWeight="SemiBold"
+                        FontSize="12"
+                        CornerRadius="6"
+                        BorderBrush="#CBD5E1"
+                        BorderThickness="1"
+                        Cursor="Hand" />
+            </Grid>
+        </Grid>
+    </Border>
+</UserControl>

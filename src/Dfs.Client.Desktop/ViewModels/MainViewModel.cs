@@ -65,6 +65,7 @@ public sealed class MainViewModel : ViewModelBase
             // Ignore logout exceptions in UI
         }
 
+        LoginVm.Password = "";
         CurrentPage = LoginVm;
         WindowTitle = "Centralized DFS - Đăng nhập";
     }

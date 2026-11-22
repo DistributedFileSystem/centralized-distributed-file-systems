@@ -52,6 +52,15 @@ public sealed class UserShellViewModel : ViewModelBase
         FileBrowserVm = new FileBrowserViewModel(_client);
         TransferManagerVm = new TransferManagerViewModel(_client);
 
+        FileBrowserVm.DownloadRequested = item =>
+        {
+            TransferManagerVm.QueueNewDownload(item.Path, item.Name, item.Raw.Size);
+        };
+        FileBrowserVm.DownloadVersionRequested = (path, localFileName, size) =>
+        {
+            TransferManagerVm.QueueNewDownload(path, localFileName, size);
+        };
+
         _currentPage = FileBrowserVm;
 
         NavigateFilesCommand = new RelayCommand(async () =>

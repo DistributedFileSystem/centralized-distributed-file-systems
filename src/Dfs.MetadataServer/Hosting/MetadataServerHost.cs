@@ -70,7 +70,7 @@ public sealed class MetadataServerHost : IAsyncDisposable
         _authorizer = authorizer ?? new RbacAuthorizer(Store);
         _namespaceHandler = new NamespaceHandler(Store, _authorizer);
         var tokenSigner = new DataTokenSigner(Config.TokenKey, _timeProvider);
-        _transferHandler = new TransferHandler(Store, tokenSigner, _authorizer, _timeProvider);
+        _transferHandler = new TransferHandler(Store, tokenSigner, _authorizer, _timeProvider, keepVersions: Config.KeepVersions);
         _sessions = new SessionService(Store, _timeProvider);
     }
 

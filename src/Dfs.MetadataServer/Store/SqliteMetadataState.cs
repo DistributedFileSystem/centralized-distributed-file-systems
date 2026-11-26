@@ -830,6 +830,8 @@ internal sealed class SqliteMetadataState : IDisposable
             return CommandResult.Fail(ErrorCode.BadRequest, "UploadId must not be empty.");
         if (c.Checksums is null)
             return CommandResult.Fail(ErrorCode.BadRequest, "Checksums must not be null.");
+        if (c.KeepVersions < 0)
+            return CommandResult.Fail(ErrorCode.BadRequest, "KeepVersions cannot be negative.");
 
         var upload = FindUpload(c.UploadId);
         if (upload is null)

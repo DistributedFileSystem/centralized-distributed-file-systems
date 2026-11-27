@@ -14,7 +14,8 @@ public sealed record MetadataServerConfig(
     string TokenKey,
     string AdminUser,
     string AdminPassword,
-    int KeepVersions = MetadataServerConfig.DefaultKeepVersions)
+    int KeepVersions = MetadataServerConfig.DefaultKeepVersions,
+    int SnapshotIntervalOps = MetadataServerConfig.DefaultSnapshotIntervalOps)
 {
     /// <summary>Default port for the Metadata Server.</summary>
     public const int DefaultPort = 7000;
@@ -22,11 +23,17 @@ public sealed record MetadataServerConfig(
     /// <summary>Default maximum number of retained file versions.</summary>
     public const int DefaultKeepVersions = 5;
 
+    /// <summary>Default number of applied operations between automatic snapshots (0 disables).</summary>
+    public const int DefaultSnapshotIntervalOps = 100;
+
     /// <summary>Path to the SQLite database file inside <see cref="DataDir"/>.</summary>
     public string DatabasePath => Path.Combine(DataDir, "metadata.db");
 
     /// <summary>Path to the append-only op log file inside <see cref="DataDir"/>.</summary>
     public string OpLogPath => Path.Combine(DataDir, "oplog.jsonl");
+
+    /// <summary>Path to the snapshot directory inside <see cref="DataDir"/>.</summary>
+    public string SnapshotDir => Path.Combine(DataDir, "snapshots");
 
     /// <summary>
     /// Loads configuration from environment variables with sensible defaults.
@@ -62,6 +69,11 @@ public sealed record MetadataServerConfig(
         var keepVersionsStr = Environment.GetEnvironmentVariable("KEEP_VERSIONS");
         var keepVersions = int.TryParse(keepVersionsStr, out var kv) && kv > 0 ? kv : DefaultKeepVersions;
 
+        var snapshotIntervalStr = Environment.GetEnvironmentVariable("SNAPSHOT_INTERVAL_OPS");
+        var snapshotIntervalOps = int.TryParse(snapshotIntervalStr, out var si) && si >= 0
+            ? si
+            : DefaultSnapshotIntervalOps;
+
         return new MetadataServerConfig(
             nodeRole,
             nodeId,
@@ -72,7 +84,7 @@ public sealed record MetadataServerConfig(
             tokenKey,
             adminUser,
             adminPassword,
-            keepVersions);
+            keepVersions,
+            snapshotIntervalOps);
     }
 }
-

@@ -31,6 +31,7 @@ public sealed class MetadataServerHost : IAsyncDisposable
     private CancellationTokenSource? _cts;
     private Task? _acceptLoopTask;
     private Task? _heartbeatMonitorTask;
+    private int _disposed;
 
     /// <summary>Server configuration.</summary>
     public MetadataServerConfig Config { get; }
@@ -63,7 +64,7 @@ public sealed class MetadataServerHost : IAsyncDisposable
         else
         {
             Directory.CreateDirectory(config.DataDir);
-            Store = new MetadataStore(config.OpLogPath, config.DatabasePath);
+            Store = new MetadataStore(config.OpLogPath, config.DatabasePath, config.SnapshotDir, config.SnapshotIntervalOps);
             _ownsStore = true;
         }
 
@@ -515,8 +516,23 @@ public sealed class MetadataServerHost : IAsyncDisposable
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
         await StopAsync().ConfigureAwait(false);
         _cts?.Dispose();
+        if (_ownsStore && Store is MetadataStore ms)
+        {
+            try
+            {
+                if (ms.AppliedSeq > 0)
+                {
+                    ms.TakeSnapshot();
+                }
+            }
+            catch
+            {
+                // Best-effort snapshot on graceful shutdown
+            }
+        }
         if (_ownsStore && Store is IDisposable disposableStore)
         {
             disposableStore.Dispose();

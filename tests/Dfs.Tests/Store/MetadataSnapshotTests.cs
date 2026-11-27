@@ -537,4 +537,68 @@ public sealed class MetadataSnapshotTests : IDisposable
         Assert.True(File.Exists(Path.Combine(config.SnapshotDir, "snapshot.db")));
         Assert.True(File.Exists(Path.Combine(config.SnapshotDir, "snapshot.meta.json")));
     }
+
+    [Fact]
+    public async Task MetadataServerHost_WaitForShutdownThenDisposeAsync_TakesSnapshotAndDisposesStore()
+    {
+        var dir = NewDir();
+        var config = new MetadataServerConfig(
+            NodeRole: "metadata",
+            NodeId: "m-prod-lifecycle",
+            ListenPort: 0,
+            AdvertiseHost: "127.0.0.1",
+            MetadataEndpoints: new[] { "127.0.0.1:7000" },
+            DataDir: dir,
+            TokenKey: "test-token-key-1234567890",
+            AdminUser: "admin",
+            AdminPassword: "secret-password",
+            KeepVersions: 5,
+            SnapshotIntervalOps: 0);
+
+        using var cts = new CancellationTokenSource();
+        await using (var host = new MetadataServerHost(config))
+        {
+            await host.StartAsync(cts.Token);
+            cts.Cancel();
+            await host.WaitForShutdownAsync(cts.Token);
+        }
+
+        var snapDb = Path.Combine(config.SnapshotDir, "snapshot.db");
+        var snapMeta = Path.Combine(config.SnapshotDir, "snapshot.meta.json");
+        Assert.True(File.Exists(snapDb));
+        Assert.True(File.Exists(snapMeta));
+        using var doc = JsonDocument.Parse(File.ReadAllText(snapMeta));
+        var lastSeq = doc.RootElement.GetProperty("lastSeq").GetInt64();
+        Assert.True(lastSeq > 0);
+
+        // Verify store was disposed and snapshot recovers cleanly after deleting SQLite
+        DeleteSqlite(dir);
+        var reopened = Open(dir, snapshotIntervalOps: 0);
+        Assert.Equal(lastSeq, reopened.AppliedSeq);
+        Assert.NotNull(await reopened.FindUserByNameAsync("admin"));
+    }
+
+    [Fact]
+    public async Task Restart_WhenSqliteMissingAndNoSnapshot_CleansStaleSidecarsAndReplaysOpLog()
+    {
+        var dir = NewDir();
+        var store = Open(dir, snapshotIntervalOps: 0);
+        await store.SubmitAsync(Folder("f1", "one"));
+        await store.SubmitAsync(Folder("f2", "two"));
+        Close(store);
+
+        // Delete metadata.db with no snapshot present, leaving corrupt stale sidecars behind
+        DeleteSqlite(dir);
+        File.WriteAllText(DbPath(dir) + "-journal", "corrupt-stale-journal");
+        File.WriteAllText(DbPath(dir) + "-wal", "corrupt-stale-wal");
+        File.WriteAllText(DbPath(dir) + "-shm", "corrupt-stale-shm");
+
+        var reopened = Open(dir, snapshotIntervalOps: 0);
+        Assert.Equal(2, reopened.AppliedSeq);
+        Assert.NotNull(await reopened.FindItemByPathAsync("/one"));
+        Assert.NotNull(await reopened.FindItemByPathAsync("/two"));
+        Assert.False(File.Exists(DbPath(dir) + "-journal"));
+        Assert.False(File.Exists(DbPath(dir) + "-wal"));
+        Assert.False(File.Exists(DbPath(dir) + "-shm"));
+    }
 }

@@ -52,7 +52,7 @@ public sealed class MetadataStore : IMetadataStore, IDisposable
         var validSnapshot = SnapshotManager.TryLoadValidSnapshot(SnapshotDirectory, _log.LastSeq);
 
         var existingSeq = SnapshotManager.TryReadSqliteSeq(sqlitePath);
-        if (File.Exists(sqlitePath) && (existingSeq is null || existingSeq.Value > _log.LastSeq))
+        if (existingSeq is null || existingSeq.Value > _log.LastSeq)
         {
             SnapshotManager.DeleteSqliteFiles(sqlitePath);
             existingSeq = null;

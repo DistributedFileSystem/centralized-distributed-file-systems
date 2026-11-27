@@ -134,7 +134,6 @@ public sealed class MetadataServerHost : IAsyncDisposable
             // Expected on shutdown
         }
 
-if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
         await StopAsync().ConfigureAwait(false);
     }
 
@@ -517,7 +516,7 @@ if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
-if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
         await StopAsync().ConfigureAwait(false);
         _cts?.Dispose();
         if (_ownsStore && Store is MetadataStore ms)

@@ -397,11 +397,27 @@ public sealed class MetadataServerHost : IAsyncDisposable
                     await FrameCodec.WriteMessageAsync(stream, MessageType.ClusterStatusResponse, response, cancellationToken).ConfigureAwait(false);
                     return;
                 }
+                case MessageType.ListAudit:
+                {
+                    var request = FrameSerialization.DeserializeJson<ListAudit>(frame.Payload);
+                    if (string.IsNullOrWhiteSpace(request.RequestId) || request.Limit < 1 || request.Limit > 1000 ||
+                        (request.From is not null && request.To is not null && request.From > request.To))
+                        throw new DfsException(ErrorCode.BadRequest, "Invalid audit query.");
+                    var user = await _sessions.RequireActiveUserAsync(request.Session, cancellationToken).ConfigureAwait(false);
+                    var decision = await _authorizer.AuthorizeAsync(user.Id, Permission.AuditView, null, cancellationToken).ConfigureAwait(false);
+                    if (!decision.Allowed)
+                        throw new DfsException(ErrorCode.Forbidden, decision.Reason);
+                    var entries = await Store.ListAuditAsync(request.From, request.To, request.UserId, request.Limit, cancellationToken).ConfigureAwait(false);
+                    await FrameCodec.WriteMessageAsync(stream, MessageType.ListAuditResponse,
+                        new ListAuditResponse(request.RequestId, new ValueList<AuditEntry>(entries)), cancellationToken).ConfigureAwait(false);
+                    return;
+                }
                 default:
                 {
                     if (NamespaceHandler.CanHandle(frame.Type))
                     {
                         var response = await _namespaceHandler.HandleAsync(frame, cancellationToken).ConfigureAwait(false);
+                        if (IsAuditedMutation(frame.Type)) await RecordRequestAuditAsync(frame, true, cancellationToken).ConfigureAwait(false);
                         await FrameCodec.WriteRawFrameAsync(stream, response.Type, response.Payload, cancellationToken).ConfigureAwait(false);
                         return;
                     }
@@ -409,6 +425,7 @@ public sealed class MetadataServerHost : IAsyncDisposable
                     if (TransferHandler.CanHandle(frame.Type))
                     {
                         var response = await _transferHandler.HandleAsync(frame, cancellationToken).ConfigureAwait(false);
+                        if (IsAuditedMutation(frame.Type)) await RecordRequestAuditAsync(frame, true, cancellationToken).ConfigureAwait(false);
                         await FrameCodec.WriteRawFrameAsync(stream, response.Type, response.Payload, cancellationToken).ConfigureAwait(false);
                         return;
                     }
@@ -419,12 +436,43 @@ public sealed class MetadataServerHost : IAsyncDisposable
         }
         catch (DfsException ex)
         {
+            if (ex.Code == ErrorCode.Forbidden)
+                await RecordRequestAuditAsync(frame, false, cancellationToken).ConfigureAwait(false);
             await WriteErrorAsync(stream, ExtractRequestId(frame.Payload), ex.Code, ex.Message, ex.Details, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception) when (!cancellationToken.IsCancellationRequested)
         {
             await WriteErrorAsync(stream, ExtractRequestId(frame.Payload), ErrorCode.Internal, "Internal server error.", null, cancellationToken).ConfigureAwait(false);
         }
+    }
+
+    private static bool IsAuditedMutation(MessageType type) => type is
+        MessageType.CreateFolder or MessageType.Rename or MessageType.Move or MessageType.DeleteItem or
+        MessageType.CreateUpload or MessageType.CommitUpload or MessageType.AbortUpload;
+
+    private async Task RecordRequestAuditAsync(RawFrame frame, bool allowed, CancellationToken cancellationToken)
+    {
+        using var document = JsonDocument.Parse(frame.Payload);
+        var root = document.RootElement;
+        if (!root.TryGetProperty("session", out var session) || session.ValueKind != JsonValueKind.String)
+            return;
+        var token = session.GetString();
+        if (string.IsNullOrWhiteSpace(token)) return;
+        var record = await Store.FindSessionAsync(token, cancellationToken).ConfigureAwait(false);
+        if (record is null) return;
+        var target = "/";
+        foreach (var property in new[] { "path", "uploadId", "grantId", "userId", "groupId", "roleId" })
+        {
+            if (root.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.String)
+            {
+                target = value.GetString() ?? "/";
+                break;
+            }
+        }
+        var result = await Store.SubmitAsync(new RecordAudit(record.UserId, frame.Type.ToString(), target,
+            allowed, _timeProvider.GetUtcNow().UtcDateTime), cancellationToken).ConfigureAwait(false);
+        if (!result.Success)
+            throw new DfsException(result.Error ?? ErrorCode.Internal, result.Message ?? "Failed to record audit.");
     }
 
     private static Task WriteErrorAsync(

@@ -832,8 +832,16 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
         throw new NotSupportedException("Admin operations are scheduled for M2-13.");
 
     /// <inheritdoc />
-    public Task<IReadOnlyList<AuditEntry>> ListAuditAsync(DateTime? from = null, DateTime? to = null, string? userId = null, int limit = 100, CancellationToken cancellationToken = default) =>
-        throw new NotSupportedException("Admin operations are scheduled for M2-13.");
+    public async Task<IReadOnlyList<AuditEntry>> ListAuditAsync(DateTime? from = null, DateTime? to = null, string? userId = null, int limit = 100, CancellationToken cancellationToken = default)
+    {
+        ThrowIfDisposed();
+        var requestId = Guid.NewGuid().ToString("D");
+        var response = await SendAndReceiveAsync<ListAudit, ListAuditResponse>(
+            requestId, MessageType.ListAudit, MessageType.ListAuditResponse,
+            session => new ListAudit(requestId, session!, from, to, userId, limit),
+            requiresSession: true, cancellationToken).ConfigureAwait(false);
+        return response.Entries;
+    }
 
     private async Task EnsureConnectedInternalAsync(CancellationToken cancellationToken)
     {

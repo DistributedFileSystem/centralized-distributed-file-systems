@@ -26,6 +26,7 @@ public sealed class TransferHandler
     private readonly TimeProvider _timeProvider;
     private readonly int _defaultChunkSize;
     private readonly long _maxFileSize;
+    private readonly int _keepVersions;
 
     /// <summary>
     /// Initializes a new instance of <see cref="TransferHandler"/>.
@@ -36,7 +37,8 @@ public sealed class TransferHandler
         IAuthorizer? authorizer = null,
         TimeProvider? timeProvider = null,
         int defaultChunkSize = 4 * 1024 * 1024,
-        long maxFileSize = 2L * 1024 * 1024 * 1024)
+        long maxFileSize = 2L * 1024 * 1024 * 1024,
+        int keepVersions = 5)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _tokenSigner = tokenSigner ?? throw new ArgumentNullException(nameof(tokenSigner));
@@ -44,6 +46,7 @@ public sealed class TransferHandler
         _timeProvider = timeProvider ?? TimeProvider.System;
         _defaultChunkSize = defaultChunkSize;
         _maxFileSize = maxFileSize;
+        _keepVersions = keepVersions;
     }
 
     /// <summary>Returns true when the message type is handled by this handler.</summary>
@@ -253,6 +256,11 @@ public sealed class TransferHandler
         }
         else
         {
+            if (upload.BaseVersion != 0)
+            {
+                throw new DfsException(ErrorCode.Conflict, "File does not exist.", VersionDetails(0));
+            }
+
             if (upload.ParentId != SqliteMetadataState.RootId)
             {
                 var parent = await _store.FindItemByIdAsync(upload.ParentId, cancellationToken).ConfigureAwait(false);
@@ -265,7 +273,7 @@ public sealed class TransferHandler
         }
 
         var now = _timeProvider.GetUtcNow().UtcDateTime;
-        var cmd = new CommandCommitUpload(request.UploadId, request.Checksums, KeepVersions: 0, now);
+        var cmd = new CommandCommitUpload(request.UploadId, request.Checksums, KeepVersions: _keepVersions, now);
 
         var result = await _store.SubmitAsync(cmd, cancellationToken).ConfigureAwait(false);
         if (!result.Success)
@@ -329,14 +337,19 @@ public sealed class TransferHandler
             throw new DfsException(ErrorCode.NotFound, $"File '{normalizedPath}' not found.");
         }
 
+        await AuthorizeAsync(userId, Permission.FileRead, item.Id, cancellationToken).ConfigureAwait(false);
+
         if (item.Kind != ItemKind.File)
         {
             throw new DfsException(ErrorCode.BadRequest, $"Path '{normalizedPath}' is not a file.");
         }
 
-        await AuthorizeAsync(userId, Permission.FileRead, item.Id, cancellationToken).ConfigureAwait(false);
+        if (request.Version < 0)
+        {
+            throw new DfsException(ErrorCode.BadRequest, "Version cannot be negative.");
+        }
 
-        var targetVersion = request.Version > 0 ? request.Version : item.CurrentVersion;
+        var targetVersion = request.Version == 0 ? item.CurrentVersion : request.Version;
         if (targetVersion <= 0 || targetVersion > item.CurrentVersion)
         {
             throw new DfsException(ErrorCode.NotFound, $"Version {targetVersion} not found for file '{normalizedPath}'.");

@@ -13,10 +13,14 @@ public sealed record MetadataServerConfig(
     string DataDir,
     string TokenKey,
     string AdminUser,
-    string AdminPassword)
+    string AdminPassword,
+    int KeepVersions = MetadataServerConfig.DefaultKeepVersions)
 {
     /// <summary>Default port for the Metadata Server.</summary>
     public const int DefaultPort = 7000;
+
+    /// <summary>Default maximum number of retained file versions.</summary>
+    public const int DefaultKeepVersions = 5;
 
     /// <summary>Path to the SQLite database file inside <see cref="DataDir"/>.</summary>
     public string DatabasePath => Path.Combine(DataDir, "metadata.db");
@@ -55,6 +59,9 @@ public sealed record MetadataServerConfig(
 
         var adminPassword = Environment.GetEnvironmentVariable("ADMIN_PASSWORD") ?? string.Empty;
 
+        var keepVersionsStr = Environment.GetEnvironmentVariable("KEEP_VERSIONS");
+        var keepVersions = int.TryParse(keepVersionsStr, out var kv) && kv > 0 ? kv : DefaultKeepVersions;
+
         return new MetadataServerConfig(
             nodeRole,
             nodeId,
@@ -64,7 +71,8 @@ public sealed record MetadataServerConfig(
             dataDir,
             tokenKey,
             adminUser,
-            adminPassword);
+            adminPassword,
+            keepVersions);
     }
 }
 

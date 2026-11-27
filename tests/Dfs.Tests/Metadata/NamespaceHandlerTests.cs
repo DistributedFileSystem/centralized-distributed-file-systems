@@ -495,6 +495,64 @@ public sealed class NamespaceHandlerTests : IDisposable
     }
 
     [Fact]
+    public async Task ListVersions_ReturnsRetainedVersionsDescending_AndEnforcesRbac()
+    {
+        var host = await CreateAndStartHostAsync();
+        var (client, stream) = await ConnectAndHelloAsync(host);
+        await using var _ = stream;
+        using var __ = client;
+
+        await RequestAsync<CreateFolder, CreateFolderResponse>(stream, MessageType.CreateFolder,
+            MessageType.CreateFolderResponse, new CreateFolder("lv-folder", Session, "/docs"));
+        var folder = (await host.Store.FindItemByPathAsync("/docs"))!;
+
+        Assert.True((await host.Store.SubmitAsync(new RegisterDataServer("ds-1", "127.0.0.1:7001", 10000, 10000, DateTime.UtcNow))).Success);
+        var sha = new string('a', 64);
+
+        for (var v = 1; v <= 3; v++)
+        {
+            var uploadId = $"up-lv-{v}";
+            var chunkId = $"c-lv-{v}";
+            Assert.True((await host.Store.SubmitAsync(new Dfs.Shared.Commands.BeginUpload(
+                uploadId, "item-lv-1", folder.Id, "report.pdf", "admin",
+                v * 100L, v - 1, 4096,
+                new ValueList<PlannedChunk>([new PlannedChunk(0, chunkId, new ValueList<string>(["127.0.0.1:7001"]))]),
+                DateTime.UtcNow))).Success);
+            Assert.True((await host.Store.SubmitAsync(new Dfs.Shared.Commands.CommitUpload(
+                uploadId,
+                new ValueList<ChecksumInfo>([new ChecksumInfo(chunkId, v * 100L, sha)]),
+                KeepVersions: 5,
+                DateTime.UtcNow))).Success);
+        }
+
+        // Admin receives all 3 versions ordered newest first
+        var lvRes = await RequestAsync<ListVersions, ListVersionsResponse>(stream, MessageType.ListVersions,
+            MessageType.ListVersionsResponse, new ListVersions("lv-admin", Session, "/docs/report.pdf"));
+        Assert.Equal([3, 2, 1], lvRes.Versions.Select(v => v.Version));
+        Assert.Equal([300L, 200L, 100L], lvRes.Versions.Select(v => v.Size));
+
+        // Folder path -> BadRequest; root path -> BadRequest; missing path -> NotFound
+        var errFolder = await RequestExpectErrorAsync(stream, MessageType.ListVersions, new ListVersions("lv-dir", Session, "/docs"));
+        Assert.Equal(ErrorCode.BadRequest, errFolder.Code);
+        var errRoot = await RequestExpectErrorAsync(stream, MessageType.ListVersions, new ListVersions("lv-root", Session, "/"));
+        Assert.Equal(ErrorCode.BadRequest, errRoot.Code);
+        var errMissing = await RequestExpectErrorAsync(stream, MessageType.ListVersions, new ListVersions("lv-miss", Session, "/docs/missing.pdf"));
+        Assert.Equal(ErrorCode.NotFound, errMissing.Code);
+
+        // Unauthorized user -> Forbidden; after Viewer grant -> Allowed
+        Assert.True((await new UserCredentialService(host.Store).CreateUserAsync("u-reader", "reader", "password", DateTime.UtcNow)).Success);
+        Assert.True((await host.Store.SubmitAsync(new CreateSession("reader-sess", "u-reader", DateTime.UtcNow.AddHours(1), DateTime.UtcNow))).Success);
+
+        var errForbidden = await RequestExpectErrorAsync(stream, MessageType.ListVersions, new ListVersions("lv-deny", "reader-sess", "/docs/report.pdf"));
+        Assert.Equal(ErrorCode.Forbidden, errForbidden.Code);
+
+        Assert.True((await host.Store.SubmitAsync(new SetGrant("g-reader-view", BuiltInRoles.ViewerId, SubjectType.User, "u-reader", "item-lv-1", DateTime.UtcNow))).Success);
+        var readerRes = await RequestAsync<ListVersions, ListVersionsResponse>(stream, MessageType.ListVersions,
+            MessageType.ListVersionsResponse, new ListVersions("lv-allow", "reader-sess", "/docs/report.pdf"));
+        Assert.Equal(3, readerRes.Versions.Count);
+    }
+
+    [Fact]
     public async Task Audit_RecordsAllowedAndDeniedRequests_AndRestrictsListAudit()
     {
         var host = await CreateAndStartHostAsync();

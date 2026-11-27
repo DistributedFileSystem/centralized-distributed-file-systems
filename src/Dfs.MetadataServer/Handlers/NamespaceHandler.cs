@@ -42,6 +42,7 @@ public sealed class NamespaceHandler
     public static bool CanHandle(MessageType type) => type is
         MessageType.ListDir or
         MessageType.Stat or
+        MessageType.ListVersions or
         MessageType.CreateFolder or
         MessageType.Rename or
         MessageType.Move or
@@ -63,6 +64,12 @@ public sealed class NamespaceHandler
                 var req = FrameSerialization.DeserializeJson<Stat>(frame.Payload);
                 var res = await StatAsync(req, cancellationToken).ConfigureAwait(false);
                 return new RawFrame(MessageType.StatResponse, FrameSerialization.SerializeJson(res));
+            }
+            case MessageType.ListVersions:
+            {
+                var req = FrameSerialization.DeserializeJson<ListVersions>(frame.Payload);
+                var res = await ListVersionsAsync(req, cancellationToken).ConfigureAwait(false);
+                return new RawFrame(MessageType.ListVersionsResponse, FrameSerialization.SerializeJson(res));
             }
             case MessageType.CreateFolder:
             {
@@ -155,6 +162,27 @@ public sealed class NamespaceHandler
         var item = await FindRequiredItemAsync(request.Path, cancellationToken).ConfigureAwait(false);
         await AuthorizeAsync(userId, Permission.ItemList, item.Id, cancellationToken).ConfigureAwait(false);
         return new StatResponse(request.RequestId, item);
+    }
+
+    /// <summary>Lists retained versions of a file ordered newest first.</summary>
+    public async Task<ListVersionsResponse> ListVersionsAsync(ListVersions request, CancellationToken cancellationToken = default)
+    {
+        var userId = await ResolveUserAsync(request.RequestId, request.Session, cancellationToken).ConfigureAwait(false);
+        if (!NamespacePath.TryParseAbsolute(request.Path, out var segments) || segments.Length == 0)
+        {
+            throw new DfsException(ErrorCode.BadRequest, $"Invalid file path '{request.Path}'.");
+        }
+
+        var normalizedPath = "/" + string.Join('/', segments);
+        var item = await FindRequiredItemAsync(normalizedPath, cancellationToken).ConfigureAwait(false);
+        await AuthorizeAsync(userId, Permission.FileRead, item.Id, cancellationToken).ConfigureAwait(false);
+        if (item.Kind != ItemKind.File)
+        {
+            throw new DfsException(ErrorCode.BadRequest, $"Path '{normalizedPath}' is not a file.");
+        }
+
+        var versions = await _store.ListVersionsAsync(item.Id, cancellationToken).ConfigureAwait(false);
+        return new ListVersionsResponse(request.RequestId, new ValueList<VersionInfo>(versions));
     }
 
     /// <summary>Creates a new folder via deterministic command submission to <see cref="IMetadataStore"/>.</summary>

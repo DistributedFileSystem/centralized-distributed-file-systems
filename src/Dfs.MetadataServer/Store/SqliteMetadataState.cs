@@ -856,6 +856,8 @@ internal sealed class SqliteMetadataState : IDisposable
             return CommandResult.Fail(ErrorCode.BadRequest, "UploadId must not be empty.");
         if (c.Checksums is null)
             return CommandResult.Fail(ErrorCode.BadRequest, "Checksums must not be null.");
+        if (c.KeepVersions < 0)
+            return CommandResult.Fail(ErrorCode.BadRequest, "KeepVersions cannot be negative.");
 
         var upload = FindUpload(c.UploadId);
         if (upload is null)
@@ -907,9 +909,24 @@ internal sealed class SqliteMetadataState : IDisposable
             if (upload.ParentId != RootId && Scalar("SELECT 1 FROM items WHERE id = $p", ("$p", upload.ParentId)) is null)
                 return CommandResult.Fail(ErrorCode.NotFound, "Parent folder no longer exists.");
 
-            var sibling = Scalar("SELECT 1 FROM items WHERE parent_id = $p AND name = $n", ("$p", upload.ParentId), ("$n", upload.Name));
-            if (sibling is not null)
+            using var siblingCmd = Command(
+                "SELECT kind, current_version FROM items WHERE parent_id = $p AND name = $n",
+                ("$p", upload.ParentId), ("$n", upload.Name));
+            using var siblingReader = siblingCmd.ExecuteReader();
+            if (siblingReader.Read())
+            {
+                var siblingKind = siblingReader.GetString(0);
+                var siblingVersion = siblingReader.GetInt32(1);
+                if (string.Equals(siblingKind, "File", StringComparison.Ordinal))
+                {
+                    return CommandResult.Fail(
+                        ErrorCode.Conflict,
+                        $"File '{upload.Name}' already exists at version {siblingVersion}.",
+                        VersionDetails(siblingVersion));
+                }
+
                 return CommandResult.Fail(ErrorCode.AlreadyExists, $"Item '{upload.Name}' already exists.");
+            }
 
             if (Scalar("SELECT 1 FROM roles WHERE id = $id", ("$id", BuiltInRoles.OwnerId)) is not null &&
                 Scalar("SELECT 1 FROM users WHERE id = $id", ("$id", upload.CreatedBy)) is not null &&

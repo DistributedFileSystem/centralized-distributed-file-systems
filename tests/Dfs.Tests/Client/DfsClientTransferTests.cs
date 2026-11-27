@@ -1,4 +1,6 @@
+using System.Net.Sockets;
 using System.Security.Cryptography;
+using System.Text;
 using Dfs.Client.Core;
 using Dfs.DataServer.Config;
 using Dfs.DataServer.Hosting;
@@ -7,7 +9,9 @@ using Dfs.MetadataServer.Config;
 using Dfs.MetadataServer.Hosting;
 using Dfs.MetadataServer.Store;
 using Dfs.Shared.Commands;
+using Dfs.Shared.Framing;
 using Dfs.Shared.Messages;
+using CommitUploadRequest = Dfs.Shared.Messages.CommitUpload;
 
 namespace Dfs.Tests.Client;
 
@@ -56,9 +60,10 @@ public sealed class DfsClientTransferTests : IAsyncDisposable
             CapacityBytes: 50L * 1024 * 1024 * 1024);
     }
 
-    private async Task InitializeClusterAsync()
+    private async Task InitializeClusterAsync(int keepVersions = MetadataServerConfig.DefaultKeepVersions)
     {
-        _metaHost = new MetadataServerHost(_metaConfig, _store);
+        var config = _metaConfig with { KeepVersions = keepVersions };
+        _metaHost = new MetadataServerHost(config, _store);
         await _metaHost.StartAsync();
 
         _dataHost = new DataServerHost(_dataConfig, _storage);
@@ -229,6 +234,136 @@ public sealed class DfsClientTransferTests : IAsyncDisposable
         await _client.DownloadFileAsync("/empty.txt", downloadStream);
 
         Assert.Empty(downloadStream.ToArray());
+    }
+
+    [Fact]
+    public async Task VersionHistory_ListVersions_DownloadSpecificVersion_AndKeepVersionsPruning()
+    {
+        await InitializeClusterAsync(keepVersions: 2);
+        Assert.NotNull(_client);
+
+        var payloads = new[]
+        {
+            "content v1"u8.ToArray(),
+            "content v2 longer"u8.ToArray(),
+            "content v3 even longer"u8.ToArray(),
+            "content v4 final"u8.ToArray()
+        };
+
+        for (var i = 0; i < payloads.Length; i++)
+        {
+            using var ms = new MemoryStream(payloads[i]);
+            var res = await _client.UploadFileAsync("/history.txt", ms, baseVersion: i);
+            Assert.Equal(i + 1, res.Version);
+        }
+
+        var versions = await _client.ListVersionsAsync("/history.txt");
+        Assert.Equal([4, 3], versions.Select(v => v.Version));
+        Assert.Equal([payloads[3].Length, payloads[2].Length], versions.Select(v => v.Size));
+
+        // Retained version 3 and latest (version 0 -> 4) can still be downloaded
+        using var dlV3 = new MemoryStream();
+        await _client.DownloadFileAsync("/history.txt", dlV3, version: 3);
+        Assert.Equal(payloads[2], dlV3.ToArray());
+
+        using var dlLatest = new MemoryStream();
+        await _client.DownloadFileAsync("/history.txt", dlLatest, version: 0);
+        Assert.Equal(payloads[3], dlLatest.ToArray());
+
+        // Pruned versions 1 and 2 and non-existent version 5 throw NotFound
+        foreach (var missingVersion in new[] { 1, 2, 5 })
+        {
+            using var dlMissing = new MemoryStream();
+            var ex = await Assert.ThrowsAsync<DfsException>(() =>
+                _client.DownloadFileAsync("/history.txt", dlMissing, version: missingVersion));
+            Assert.Equal(ErrorCode.NotFound, ex.Code);
+        }
+    }
+
+    [Fact]
+    public async Task CommitUpload_MidFlightVersionConflict_ThrowsConflictWithDetails()
+    {
+        await InitializeClusterAsync();
+        Assert.NotNull(_client);
+
+        await _client.UploadFileAsync("/race.txt", new MemoryStream("v1"u8.ToArray()), baseVersion: 0);
+
+        // User starts upload based on version 1 over raw TCP
+        using var tcp = new TcpClient();
+        await tcp.ConnectAsync("127.0.0.1", _metaHost!.BoundPort);
+        await using var stream = tcp.GetStream();
+        await HandshakeHandler.ClientHandshakeAsync(stream, new Hello(Guid.NewGuid().ToString("D"), ProtocolConstants.CurrentProtocolVersion, NodeType.Client));
+
+        await FrameCodec.WriteMessageAsync(stream, MessageType.Login, new Login(Guid.NewGuid().ToString("D"), _metaConfig.AdminUser, _metaConfig.AdminPassword));
+        var loginRes = await FrameCodec.ReadMessageAsync<LoginResponse>(stream, MessageType.LoginResponse);
+        Assert.NotNull(loginRes);
+
+        var staleBytes = Encoding.UTF8.GetBytes("stale v2");
+        await FrameCodec.WriteMessageAsync(stream, MessageType.CreateUpload, new CreateUpload(Guid.NewGuid().ToString("D"), loginRes.Session, "/race.txt", staleBytes.Length, BaseVersion: 1));
+        var createRes = await FrameCodec.ReadMessageAsync<CreateUploadResponse>(stream, MessageType.CreateUploadResponse);
+        Assert.NotNull(createRes);
+
+        // Concurrent writer commits version 2 before the first upload commits
+        var winner = await _client.UploadFileAsync("/race.txt", new MemoryStream("winner v2"u8.ToArray()), baseVersion: 1);
+        Assert.Equal(2, winner.Version);
+
+        // Attempting to commit the in-flight upload must return Conflict with currentVersion = 2
+        var sha = Convert.ToHexStringLower(SHA256.HashData(staleBytes));
+        var checksums = new ValueList<ChecksumInfo>([new ChecksumInfo(createRes.Chunks[0].ChunkId, staleBytes.Length, sha)]);
+        await FrameCodec.WriteMessageAsync(stream, MessageType.CommitUpload, new CommitUploadRequest(Guid.NewGuid().ToString("D"), loginRes.Session, createRes.UploadId, checksums));
+        var frame = await FrameCodec.ReadRawFrameAsync(stream);
+        Assert.NotNull(frame);
+        Assert.Equal(MessageType.Error, frame.Type);
+
+        var err = FrameSerialization.DeserializeJson<ErrorResponse>(frame.Payload);
+        Assert.Equal(ErrorCode.Conflict, err.Code);
+        Assert.NotNull(err.Details);
+        Assert.True(err.Details.TryGetValue("currentVersion", out var currentVerElem));
+        Assert.Equal(2, currentVerElem.GetInt32());
+    }
+
+    [Fact]
+    public async Task UploadFileAsync_AbortsUpload_WhenCommitUploadFailsWithConflict()
+    {
+        await InitializeClusterAsync();
+        Assert.NotNull(_client);
+
+        // Concurrent new-file race: while client 1 uploads chunks for /abort-on-conflict.txt (baseVersion 0),
+        // client 2 creates the file first, causing client 1's CommitUpload to fail with Conflict.
+        using var client2 = new DfsClient(new DfsClientOptions
+        {
+            MetadataEndpoints = [$"127.0.0.1:{_metaHost!.BoundPort}"],
+            ConnectTimeout = TimeSpan.FromSeconds(5),
+            RequestTimeout = TimeSpan.FromSeconds(10)
+        });
+        await client2.LoginAsync(_metaConfig.AdminUser, _metaConfig.AdminPassword);
+
+        var raced = false;
+        var progress = new SyncProgress<(long BytesTransferred, long TotalBytes)>(_ =>
+        {
+            if (raced) return;
+            raced = true;
+            client2.UploadFileAsync("/abort-on-conflict.txt", new MemoryStream("winner"u8.ToArray()), baseVersion: 0)
+                .GetAwaiter().GetResult();
+        });
+
+        var ex = await Assert.ThrowsAsync<DfsException>(() =>
+            _client.UploadFileAsync("/abort-on-conflict.txt", new MemoryStream("loser"u8.ToArray()), baseVersion: 0, progress));
+        Assert.Equal(ErrorCode.Conflict, ex.Code);
+
+        // Verify no orphan upload record remains in SQLite
+        using var conn = new Microsoft.Data.Sqlite.SqliteConnection(
+            new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder { DataSource = _metaConfig.DatabasePath, Pooling = false }.ToString());
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT COUNT(*) FROM uploads";
+        var count = Convert.ToInt64(cmd.ExecuteScalar());
+        Assert.Equal(0L, count);
+    }
+
+    private sealed class SyncProgress<T>(Action<T> handler) : IProgress<T>
+    {
+        public void Report(T value) => handler(value);
     }
 
     public async ValueTask DisposeAsync()

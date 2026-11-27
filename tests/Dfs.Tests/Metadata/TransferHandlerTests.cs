@@ -66,6 +66,14 @@ public sealed class TransferHandlerTests : IAsyncDisposable
         return (client, stream, loginRes.Session);
     }
 
+    private static async Task<CreateUploadResponse> SendCreateUploadAsync(NetworkStream stream, string session, string path, long size, int baseVersion)
+    {
+        await FrameCodec.WriteMessageAsync(stream, MessageType.CreateUpload, new CreateUpload(Guid.NewGuid().ToString("D"), session, path, size, baseVersion));
+        var res = await FrameCodec.ReadMessageAsync<CreateUploadResponse>(stream, MessageType.CreateUploadResponse);
+        Assert.NotNull(res);
+        return res;
+    }
+
     [Fact]
     public async Task CreateUpload_AssignsAliveDataServers_ByHighestFreeSpace()
     {
@@ -401,6 +409,152 @@ public sealed class TransferHandlerTests : IAsyncDisposable
             var abortRes = await FrameCodec.ReadMessageAsync<AbortUploadResponse>(stream1b, MessageType.AbortUploadResponse);
             Assert.NotNull(abortRes);
         }
+    }
+
+    [Fact]
+    public async Task Open_NegativeVersion_ReturnsBadRequest()
+    {
+        await _store.SubmitAsync(new RegisterDataServer("ds-1", "127.0.0.1:7001", 100000, 100000, DateTime.UtcNow));
+        var host = await StartHostAsync();
+
+        var (client, stream, session) = await ConnectAndLoginAsync(host);
+        using var _ = client;
+        await using var __ = stream;
+
+        var createRes = await SendCreateUploadAsync(stream, session, "/neg-ver.txt", 4, 0);
+        var sha = Convert.ToHexStringLower(SHA256.HashData("test"u8));
+        var commitReq = new CommitUploadRequest(Guid.NewGuid().ToString("D"), session, createRes.UploadId,
+            new ValueList<ChecksumInfo>([new ChecksumInfo(createRes.Chunks[0].ChunkId, 4, sha)]));
+        await FrameCodec.WriteMessageAsync(stream, MessageType.CommitUpload, commitReq);
+        await FrameCodec.ReadMessageAsync<CommitUploadResponse>(stream, MessageType.CommitUploadResponse);
+
+        await FrameCodec.WriteMessageAsync(stream, MessageType.Open, new Open(Guid.NewGuid().ToString("D"), session, "/neg-ver.txt", -1));
+        var ex = await Assert.ThrowsAsync<DfsException>(() =>
+            FrameCodec.ReadMessageAsync<OpenResponse>(stream, MessageType.OpenResponse));
+        Assert.Equal(ErrorCode.BadRequest, ex.Code);
+    }
+
+    [Fact]
+    public async Task Open_UnauthorizedUserOnFolder_ReturnsForbiddenBeforeKindCheck()
+    {
+        var host = await StartHostAsync(new RbacAuthorizer(_store));
+
+        var credService = new UserCredentialService(_store);
+        await credService.CreateUserAsync("u-noaccess", "noaccess", "pass1", DateTime.UtcNow);
+
+        var (adminClient, adminStream, adminSession) = await ConnectAndLoginAsync(host);
+        using (adminClient)
+        await using (adminStream)
+        {
+            await FrameCodec.WriteMessageAsync(adminStream, MessageType.CreateFolder,
+                new MessageCreateFolder(Guid.NewGuid().ToString("D"), adminSession, "/secret-dir"));
+            await FrameCodec.ReadMessageAsync<CreateFolderResponse>(adminStream, MessageType.CreateFolderResponse);
+        }
+
+        var (userClient, userStream, userSession) = await ConnectAndLoginUserAsync(host, "noaccess", "pass1");
+        using (userClient)
+        await using (userStream)
+        {
+            await FrameCodec.WriteMessageAsync(userStream, MessageType.Open,
+                new Open(Guid.NewGuid().ToString("D"), userSession, "/secret-dir", 0));
+            var ex = await Assert.ThrowsAsync<DfsException>(() =>
+                FrameCodec.ReadMessageAsync<OpenResponse>(userStream, MessageType.OpenResponse));
+            Assert.Equal(ErrorCode.Forbidden, ex.Code);
+        }
+    }
+
+    [Fact]
+    public async Task CommitUpload_MissingItemWithNonZeroBaseVersion_ReturnsConflictBeforeItemCreateCheck()
+    {
+        await _store.SubmitAsync(new RegisterDataServer("ds-1", "127.0.0.1:7001", 100000, 100000, DateTime.UtcNow));
+        var storeWrapper = new MissingItemStore(_store);
+        var host = new MetadataServerHost(_config, storeWrapper, new RbacAuthorizer(storeWrapper));
+        await host.StartAsync();
+        _host = host;
+
+        var credService = new UserCredentialService(_store);
+        await credService.CreateUserAsync("u-writer", "writer", "pass1", DateTime.UtcNow);
+
+        string fileId;
+        var (adminClient, adminStream, adminSession) = await ConnectAndLoginAsync(host);
+        using (adminClient)
+        await using (adminStream)
+        {
+            await FrameCodec.WriteMessageAsync(adminStream, MessageType.CreateFolder,
+                new MessageCreateFolder(Guid.NewGuid().ToString("D"), adminSession, "/work"));
+            await FrameCodec.ReadMessageAsync<CreateFolderResponse>(adminStream, MessageType.CreateFolderResponse);
+
+            var createRes = await SendCreateUploadAsync(adminStream, adminSession, "/work/doc.txt", 2, 0);
+            var shaV1 = Convert.ToHexStringLower(SHA256.HashData("v1"u8));
+            await FrameCodec.WriteMessageAsync(adminStream, MessageType.CommitUpload,
+                new CommitUploadRequest(Guid.NewGuid().ToString("D"), adminSession, createRes.UploadId,
+                    new ValueList<ChecksumInfo>([new ChecksumInfo(createRes.Chunks[0].ChunkId, 2, shaV1)])));
+            var commitRes = await FrameCodec.ReadMessageAsync<CommitUploadResponse>(adminStream, MessageType.CommitUploadResponse);
+            Assert.NotNull(commitRes);
+            fileId = commitRes.Item.Id;
+
+            await _store.SubmitAsync(new SetGrant("g-writer-file", BuiltInRoles.EditorId, SubjectType.User, "u-writer", fileId, DateTime.UtcNow));
+        }
+
+        var (writerClient, writerStream, writerSession) = await ConnectAndLoginUserAsync(host, "writer", "pass1");
+        using (writerClient)
+        await using (writerStream)
+        {
+            var createV2 = await SendCreateUploadAsync(writerStream, writerSession, "/work/doc.txt", 2, 1);
+
+            // Simulate the item disappearing before CommitUpload without deleting the upload record
+            storeWrapper.HiddenItemId = fileId;
+
+            var shaV2 = Convert.ToHexStringLower(SHA256.HashData("v2"u8));
+            await FrameCodec.WriteMessageAsync(writerStream, MessageType.CommitUpload,
+                new CommitUploadRequest(Guid.NewGuid().ToString("D"), writerSession, createV2.UploadId,
+                    new ValueList<ChecksumInfo>([new ChecksumInfo(createV2.Chunks[0].ChunkId, 2, shaV2)])));
+            var frame = await FrameCodec.ReadRawFrameAsync(writerStream);
+            Assert.NotNull(frame);
+            Assert.Equal(MessageType.Error, frame.Type);
+            var err = FrameSerialization.DeserializeJson<ErrorResponse>(frame.Payload);
+            Assert.Equal(ErrorCode.Conflict, err.Code);
+            Assert.NotNull(err.Details);
+            Assert.Equal(0, err.Details["currentVersion"].GetInt32());
+        }
+    }
+
+    private sealed class MissingItemStore(IMetadataStore inner) : IMetadataStore
+    {
+        public string? HiddenItemId { get; set; }
+
+        public Task<CommandResult> SubmitAsync(IMetadataCommand command, CancellationToken cancellationToken = default) =>
+            inner.SubmitAsync(command, cancellationToken);
+        public Task<ItemInfo?> FindItemByPathAsync(string path, CancellationToken cancellationToken = default) =>
+            inner.FindItemByPathAsync(path, cancellationToken);
+        public async Task<ItemInfo?> FindItemByIdAsync(string itemId, CancellationToken cancellationToken = default) =>
+            itemId == HiddenItemId ? null : await inner.FindItemByIdAsync(itemId, cancellationToken).ConfigureAwait(false);
+        public Task<IReadOnlyList<ItemInfo>> ListChildrenAsync(string folderId, CancellationToken cancellationToken = default) =>
+            inner.ListChildrenAsync(folderId, cancellationToken);
+        public Task<IReadOnlyList<VersionInfo>> ListVersionsAsync(string itemId, CancellationToken cancellationToken = default) =>
+            inner.ListVersionsAsync(itemId, cancellationToken);
+        public Task<IReadOnlyList<ChunkRecord>> GetVersionChunksAsync(string itemId, int version, CancellationToken cancellationToken = default) =>
+            inner.GetVersionChunksAsync(itemId, version, cancellationToken);
+        public Task<UploadRecord?> FindUploadAsync(string uploadId, CancellationToken cancellationToken = default) =>
+            inner.FindUploadAsync(uploadId, cancellationToken);
+        public Task<UserCredentials?> FindUserByNameAsync(string username, CancellationToken cancellationToken = default) =>
+            inner.FindUserByNameAsync(username, cancellationToken);
+        public Task<UserCredentials?> FindUserByIdAsync(string userId, CancellationToken cancellationToken = default) =>
+            inner.FindUserByIdAsync(userId, cancellationToken);
+        public Task<IReadOnlyList<UserInfo>> ListUsersAsync(CancellationToken cancellationToken = default) =>
+            inner.ListUsersAsync(cancellationToken);
+        public Task<IReadOnlyList<GroupInfo>> ListGroupsAsync(CancellationToken cancellationToken = default) =>
+            inner.ListGroupsAsync(cancellationToken);
+        public Task<IReadOnlyList<RoleInfo>> ListRolesAsync(CancellationToken cancellationToken = default) =>
+            inner.ListRolesAsync(cancellationToken);
+        public Task<IReadOnlyList<GrantInfo>> ListGrantsAsync(string? itemId, string? subjectId, bool systemOnly, CancellationToken cancellationToken = default) =>
+            inner.ListGrantsAsync(itemId, subjectId, systemOnly, cancellationToken);
+        public Task<SessionRecord?> FindSessionAsync(string token, CancellationToken cancellationToken = default) =>
+            inner.FindSessionAsync(token, cancellationToken);
+        public Task<IReadOnlyList<DataServerInfo>> ListDataServersAsync(CancellationToken cancellationToken = default) =>
+            inner.ListDataServersAsync(cancellationToken);
+        public Task<IReadOnlyList<AuditEntry>> ListAuditAsync(DateTime? from, DateTime? to, string? userId, int limit, CancellationToken cancellationToken = default) =>
+            inner.ListAuditAsync(from, to, userId, limit, cancellationToken);
     }
 
     private static async Task<(TcpClient Client, NetworkStream Stream, string Session)> ConnectAndLoginUserAsync(MetadataServerHost host, string username, string password)

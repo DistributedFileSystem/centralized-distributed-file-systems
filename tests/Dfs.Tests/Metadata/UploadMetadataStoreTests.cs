@@ -334,4 +334,93 @@ public sealed class UploadMetadataStoreTests : IDisposable
         Assert.Equal(1, chunks[1].Index);
         Assert.Equal(1904, chunks[1].Size);
     }
+
+    [Fact]
+    public async Task CommitUpload_WithKeepVersions_PrunesOldVersionsAndChunks()
+    {
+        await _store.SubmitAsync(new RegisterDataServer("ds-1", "127.0.0.1:7001", 100000, 100000, DateTime.UtcNow));
+
+        var itemId = "item-keep-versions";
+        var sha = new string('f', 64);
+
+        for (var v = 1; v <= 4; v++)
+        {
+            var uploadId = $"up-kv-{v}";
+            var chunkId = $"c-kv-{v}";
+            var begin = await _store.SubmitAsync(new CommandBeginUpload(
+                uploadId, itemId, RootId, "keep.bin", "user-1", 512, v - 1, 4096,
+                new ValueList<PlannedChunk>([new PlannedChunk(0, chunkId, new ValueList<string>(["127.0.0.1:7001"]))]),
+                DateTime.UtcNow));
+            Assert.True(begin.Success);
+
+            var commit = await _store.SubmitAsync(new CommandCommitUpload(
+                uploadId,
+                new ValueList<ChecksumInfo>([new ChecksumInfo(chunkId, 512, sha)]),
+                KeepVersions: 2,
+                DateTime.UtcNow));
+            Assert.True(commit.Success);
+        }
+
+        var versions = await _store.ListVersionsAsync(itemId);
+        Assert.Equal([4, 3], versions.Select(v => v.Version));
+
+        Assert.Empty(await _store.GetVersionChunksAsync(itemId, 1));
+        Assert.Empty(await _store.GetVersionChunksAsync(itemId, 2));
+        Assert.Single(await _store.GetVersionChunksAsync(itemId, 3));
+        Assert.Single(await _store.GetVersionChunksAsync(itemId, 4));
+    }
+
+    [Fact]
+    public async Task ValidateCommitUpload_RejectsNegativeKeepVersions()
+    {
+        await _store.SubmitAsync(new RegisterDataServer("ds-1", "127.0.0.1:7001", 10000, 10000, DateTime.UtcNow));
+
+        var uploadId = "up-neg-keep";
+        await _store.SubmitAsync(new CommandBeginUpload(
+            uploadId, "item-neg-keep", RootId, "neg.txt", "user-1", 100, 0, 4096,
+            new ValueList<PlannedChunk>([new PlannedChunk(0, "c-neg-1", new ValueList<string>(["127.0.0.1:7001"]))]),
+            DateTime.UtcNow));
+
+        var res = await _store.SubmitAsync(new CommandCommitUpload(
+            uploadId,
+            new ValueList<ChecksumInfo>([new ChecksumInfo("c-neg-1", 100, new string('a', 64))]),
+            KeepVersions: -1,
+            DateTime.UtcNow));
+
+        Assert.False(res.Success);
+        Assert.Equal(ErrorCode.BadRequest, res.Error);
+    }
+
+    [Fact]
+    public async Task CommitUpload_ConcurrentNewFileCreation_ReturnsConflictWithCurrentVersion()
+    {
+        await _store.SubmitAsync(new RegisterDataServer("ds-1", "127.0.0.1:7001", 100000, 100000, DateTime.UtcNow));
+
+        var sha = new string('c', 64);
+        Assert.True((await _store.SubmitAsync(new CommandBeginUpload(
+            "up-race-1", "item-race-1", RootId, "concurrent.txt", "user-1", 100, 0, 4096,
+            new ValueList<PlannedChunk>([new PlannedChunk(0, "c-race-1", new ValueList<string>(["127.0.0.1:7001"]))]),
+            DateTime.UtcNow))).Success);
+        Assert.True((await _store.SubmitAsync(new CommandBeginUpload(
+            "up-race-2", "item-race-2", RootId, "concurrent.txt", "user-2", 100, 0, 4096,
+            new ValueList<PlannedChunk>([new PlannedChunk(0, "c-race-2", new ValueList<string>(["127.0.0.1:7001"]))]),
+            DateTime.UtcNow))).Success);
+
+        var firstCommit = await _store.SubmitAsync(new CommandCommitUpload(
+            "up-race-1",
+            new ValueList<ChecksumInfo>([new ChecksumInfo("c-race-1", 100, sha)]),
+            KeepVersions: 5,
+            DateTime.UtcNow));
+        Assert.True(firstCommit.Success);
+
+        var secondCommit = await _store.SubmitAsync(new CommandCommitUpload(
+            "up-race-2",
+            new ValueList<ChecksumInfo>([new ChecksumInfo("c-race-2", 100, sha)]),
+            KeepVersions: 5,
+            DateTime.UtcNow));
+        Assert.False(secondCommit.Success);
+        Assert.Equal(ErrorCode.Conflict, secondCommit.Error);
+        Assert.NotNull(secondCommit.Details);
+        Assert.Equal(1, secondCommit.Details["currentVersion"].GetInt32());
+    }
 }

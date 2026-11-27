@@ -45,6 +45,7 @@ internal sealed class OpLog
         ["BeginUpload"] = typeof(CommandBeginUpload),
         ["CommitUpload"] = typeof(CommandCommitUpload),
         ["AbortUpload"] = typeof(CommandAbortUpload),
+        ["RecordAudit"] = typeof(RecordAudit),
     };
 
     private readonly string _path;

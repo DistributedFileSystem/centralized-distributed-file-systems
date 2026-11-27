@@ -75,6 +75,8 @@ internal sealed class SqliteMetadataState : IDisposable
         CommandBeginUpload c => ValidateBeginUpload(c),
         CommandCommitUpload c => ValidateCommitUpload(c),
         CommandAbortUpload c => ValidateAbortUpload(c),
+        RecordAudit c => string.IsNullOrWhiteSpace(c.UserId) || string.IsNullOrWhiteSpace(c.Action) || string.IsNullOrWhiteSpace(c.Target)
+            ? CommandResult.Fail(ErrorCode.BadRequest, "Audit user, action and target are required.") : null,
         _ => CommandResult.Fail(ErrorCode.BadRequest, $"Unsupported command {command.GetType().Name}."),
     };
 
@@ -255,6 +257,11 @@ internal sealed class SqliteMetadataState : IDisposable
             case CommandAbortUpload c:
                 Exec("DELETE FROM uploads WHERE id = $id", ("$id", c.UploadId));
                 break;
+            case RecordAudit c:
+                Exec("INSERT INTO audit_log (time, user_id, action, target, allowed) VALUES ($time, $user, $action, $target, $allowed)",
+                    ("$time", Format(c.At)), ("$user", c.UserId), ("$action", c.Action),
+                    ("$target", c.Target), ("$allowed", c.Allowed ? 1 : 0));
+                break;
             default:
                 throw new InvalidOperationException($"Unsupported command {command.GetType().Name}.");
         }
@@ -279,6 +286,25 @@ internal sealed class SqliteMetadataState : IDisposable
 
     public IReadOnlyList<ItemInfo> ListChildren(string folderId) =>
         ReadItems($"SELECT {ItemColumns} FROM items WHERE parent_id = $p ORDER BY name", ("$p", folderId));
+
+    public IReadOnlyList<AuditEntry> ListAudit(DateTime? from, DateTime? to, string? userId, int limit)
+    {
+        using var cmd = Command("""
+            SELECT seq, time, user_id, action, target, allowed FROM audit_log
+            WHERE ($from IS NULL OR time >= $from) AND ($to IS NULL OR time <= $to)
+              AND ($user IS NULL OR user_id = $user)
+            ORDER BY seq DESC LIMIT $limit
+            """,
+            ("$from", from is null ? DBNull.Value : Format(from.Value)),
+            ("$to", to is null ? DBNull.Value : Format(to.Value)),
+            ("$user", userId is null ? DBNull.Value : userId), ("$limit", Math.Clamp(limit, 1, 1000)));
+        using var reader = cmd.ExecuteReader();
+        var entries = new List<AuditEntry>();
+        while (reader.Read())
+            entries.Add(new AuditEntry(reader.GetInt64(0), Parse(reader.GetString(1)), reader.GetString(2),
+                reader.GetString(3), reader.GetString(4), reader.GetInt64(5) != 0));
+        return entries;
+    }
 
     public UploadRecord? FindUpload(string uploadId)
     {
@@ -883,9 +909,24 @@ internal sealed class SqliteMetadataState : IDisposable
             if (upload.ParentId != RootId && Scalar("SELECT 1 FROM items WHERE id = $p", ("$p", upload.ParentId)) is null)
                 return CommandResult.Fail(ErrorCode.NotFound, "Parent folder no longer exists.");
 
-            var sibling = Scalar("SELECT 1 FROM items WHERE parent_id = $p AND name = $n", ("$p", upload.ParentId), ("$n", upload.Name));
-            if (sibling is not null)
+            using var siblingCmd = Command(
+                "SELECT kind, current_version FROM items WHERE parent_id = $p AND name = $n",
+                ("$p", upload.ParentId), ("$n", upload.Name));
+            using var siblingReader = siblingCmd.ExecuteReader();
+            if (siblingReader.Read())
+            {
+                var siblingKind = siblingReader.GetString(0);
+                var siblingVersion = siblingReader.GetInt32(1);
+                if (string.Equals(siblingKind, "File", StringComparison.Ordinal))
+                {
+                    return CommandResult.Fail(
+                        ErrorCode.Conflict,
+                        $"File '{upload.Name}' already exists at version {siblingVersion}.",
+                        VersionDetails(siblingVersion));
+                }
+
                 return CommandResult.Fail(ErrorCode.AlreadyExists, $"Item '{upload.Name}' already exists.");
+            }
 
             if (Scalar("SELECT 1 FROM roles WHERE id = $id", ("$id", BuiltInRoles.OwnerId)) is not null &&
                 Scalar("SELECT 1 FROM users WHERE id = $id", ("$id", upload.CreatedBy)) is not null &&

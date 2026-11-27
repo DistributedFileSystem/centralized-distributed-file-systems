@@ -579,35 +579,47 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
         }
         catch
         {
-            try
-            {
-                var abortReqId = Guid.NewGuid().ToString("D");
-                await SendAndReceiveAsync<AbortUpload, AbortUploadResponse>(
-                    abortReqId,
-                    MessageType.AbortUpload,
-                    MessageType.AbortUploadResponse,
-                    session => new AbortUpload(abortReqId, session!, uploadId),
-                    requiresSession: true,
-                    CancellationToken.None).ConfigureAwait(false);
-            }
-            catch
-            {
-            }
-
+            await TryAbortUploadAsync(uploadId).ConfigureAwait(false);
             throw;
         }
 
         // Step 3: CommitUpload
-        var commitReqId = Guid.NewGuid().ToString("D");
-        var commitResponse = await SendAndReceiveAsync<CommitUpload, CommitUploadResponse>(
-            commitReqId,
-            MessageType.CommitUpload,
-            MessageType.CommitUploadResponse,
-            session => new CommitUpload(commitReqId, session!, uploadId, new ValueList<ChecksumInfo>(checksums)),
-            requiresSession: true,
-            cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var commitReqId = Guid.NewGuid().ToString("D");
+            var commitResponse = await SendAndReceiveAsync<CommitUpload, CommitUploadResponse>(
+                commitReqId,
+                MessageType.CommitUpload,
+                MessageType.CommitUploadResponse,
+                session => new CommitUpload(commitReqId, session!, uploadId, new ValueList<ChecksumInfo>(checksums)),
+                requiresSession: true,
+                cancellationToken).ConfigureAwait(false);
 
-        return commitResponse;
+            return commitResponse;
+        }
+        catch (DfsException ex) when (ex.Code is ErrorCode.Conflict or ErrorCode.AlreadyExists or ErrorCode.BadRequest or ErrorCode.Forbidden)
+        {
+            await TryAbortUploadAsync(uploadId).ConfigureAwait(false);
+            throw;
+        }
+    }
+
+    private async Task TryAbortUploadAsync(string uploadId)
+    {
+        try
+        {
+            var abortReqId = Guid.NewGuid().ToString("D");
+            await SendAndReceiveAsync<AbortUpload, AbortUploadResponse>(
+                abortReqId,
+                MessageType.AbortUpload,
+                MessageType.AbortUploadResponse,
+                session => new AbortUpload(abortReqId, session!, uploadId),
+                requiresSession: true,
+                CancellationToken.None).ConfigureAwait(false);
+        }
+        catch
+        {
+        }
     }
 
     private async Task<ChecksumInfo> WriteChunkToDataServerAsync(
@@ -832,8 +844,16 @@ public class DfsClient : IDfsClient, IAsyncDisposable, IDisposable
         throw new NotSupportedException("Admin operations are scheduled for M2-13.");
 
     /// <inheritdoc />
-    public Task<IReadOnlyList<AuditEntry>> ListAuditAsync(DateTime? from = null, DateTime? to = null, string? userId = null, int limit = 100, CancellationToken cancellationToken = default) =>
-        throw new NotSupportedException("Admin operations are scheduled for M2-13.");
+    public async Task<IReadOnlyList<AuditEntry>> ListAuditAsync(DateTime? from = null, DateTime? to = null, string? userId = null, int limit = 100, CancellationToken cancellationToken = default)
+    {
+        ThrowIfDisposed();
+        var requestId = Guid.NewGuid().ToString("D");
+        var response = await SendAndReceiveAsync<ListAudit, ListAuditResponse>(
+            requestId, MessageType.ListAudit, MessageType.ListAuditResponse,
+            session => new ListAudit(requestId, session!, from, to, userId, limit),
+            requiresSession: true, cancellationToken).ConfigureAwait(false);
+        return response.Entries;
+    }
 
     private async Task EnsureConnectedInternalAsync(CancellationToken cancellationToken)
     {

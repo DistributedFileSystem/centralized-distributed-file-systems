@@ -256,6 +256,11 @@ public sealed class TransferHandler
         }
         else
         {
+            if (upload.BaseVersion != 0)
+            {
+                throw new DfsException(ErrorCode.Conflict, "File does not exist.", VersionDetails(0));
+            }
+
             if (upload.ParentId != SqliteMetadataState.RootId)
             {
                 var parent = await _store.FindItemByIdAsync(upload.ParentId, cancellationToken).ConfigureAwait(false);
@@ -332,14 +337,19 @@ public sealed class TransferHandler
             throw new DfsException(ErrorCode.NotFound, $"File '{normalizedPath}' not found.");
         }
 
+        await AuthorizeAsync(userId, Permission.FileRead, item.Id, cancellationToken).ConfigureAwait(false);
+
         if (item.Kind != ItemKind.File)
         {
             throw new DfsException(ErrorCode.BadRequest, $"Path '{normalizedPath}' is not a file.");
         }
 
-        await AuthorizeAsync(userId, Permission.FileRead, item.Id, cancellationToken).ConfigureAwait(false);
+        if (request.Version < 0)
+        {
+            throw new DfsException(ErrorCode.BadRequest, "Version cannot be negative.");
+        }
 
-        var targetVersion = request.Version > 0 ? request.Version : item.CurrentVersion;
+        var targetVersion = request.Version == 0 ? item.CurrentVersion : request.Version;
         if (targetVersion <= 0 || targetVersion > item.CurrentVersion)
         {
             throw new DfsException(ErrorCode.NotFound, $"Version {targetVersion} not found for file '{normalizedPath}'.");

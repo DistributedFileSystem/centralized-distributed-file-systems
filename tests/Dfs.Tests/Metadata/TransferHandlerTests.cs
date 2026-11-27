@@ -66,6 +66,14 @@ public sealed class TransferHandlerTests : IAsyncDisposable
         return (client, stream, loginRes.Session);
     }
 
+    private static async Task<CreateUploadResponse> SendCreateUploadAsync(NetworkStream stream, string session, string path, long size, int baseVersion)
+    {
+        await FrameCodec.WriteMessageAsync(stream, MessageType.CreateUpload, new CreateUpload(Guid.NewGuid().ToString("D"), session, path, size, baseVersion));
+        var res = await FrameCodec.ReadMessageAsync<CreateUploadResponse>(stream, MessageType.CreateUploadResponse);
+        Assert.NotNull(res);
+        return res;
+    }
+
     [Fact]
     public async Task CreateUpload_AssignsAliveDataServers_ByHighestFreeSpace()
     {
@@ -400,6 +408,120 @@ public sealed class TransferHandlerTests : IAsyncDisposable
             await FrameCodec.WriteMessageAsync(stream1b, MessageType.AbortUpload, abortReq1);
             var abortRes = await FrameCodec.ReadMessageAsync<AbortUploadResponse>(stream1b, MessageType.AbortUploadResponse);
             Assert.NotNull(abortRes);
+        }
+    }
+
+    [Fact]
+    public async Task Open_NegativeVersion_ReturnsBadRequest()
+    {
+        await _store.SubmitAsync(new RegisterDataServer("ds-1", "127.0.0.1:7001", 100000, 100000, DateTime.UtcNow));
+        var host = await StartHostAsync();
+
+        var (client, stream, session) = await ConnectAndLoginAsync(host);
+        using var _ = client;
+        await using var __ = stream;
+
+        var createRes = await SendCreateUploadAsync(stream, session, "/neg-ver.txt", 4, 0);
+        var sha = Convert.ToHexStringLower(SHA256.HashData("test"u8));
+        var commitReq = new CommitUploadRequest(Guid.NewGuid().ToString("D"), session, createRes.UploadId,
+            new ValueList<ChecksumInfo>([new ChecksumInfo(createRes.Chunks[0].ChunkId, 4, sha)]));
+        await FrameCodec.WriteMessageAsync(stream, MessageType.CommitUpload, commitReq);
+        await FrameCodec.ReadMessageAsync<CommitUploadResponse>(stream, MessageType.CommitUploadResponse);
+
+        await FrameCodec.WriteMessageAsync(stream, MessageType.Open, new Open(Guid.NewGuid().ToString("D"), session, "/neg-ver.txt", -1));
+        var ex = await Assert.ThrowsAsync<DfsException>(() =>
+            FrameCodec.ReadMessageAsync<OpenResponse>(stream, MessageType.OpenResponse));
+        Assert.Equal(ErrorCode.BadRequest, ex.Code);
+    }
+
+    [Fact]
+    public async Task Open_UnauthorizedUserOnFolder_ReturnsForbiddenBeforeKindCheck()
+    {
+        var host = await StartHostAsync(new RbacAuthorizer(_store));
+
+        var credService = new UserCredentialService(_store);
+        await credService.CreateUserAsync("u-noaccess", "noaccess", "pass1", DateTime.UtcNow);
+
+        var (adminClient, adminStream, adminSession) = await ConnectAndLoginAsync(host);
+        using (adminClient)
+        await using (adminStream)
+        {
+            await FrameCodec.WriteMessageAsync(adminStream, MessageType.CreateFolder,
+                new MessageCreateFolder(Guid.NewGuid().ToString("D"), adminSession, "/secret-dir"));
+            await FrameCodec.ReadMessageAsync<CreateFolderResponse>(adminStream, MessageType.CreateFolderResponse);
+        }
+
+        var (userClient, userStream, userSession) = await ConnectAndLoginUserAsync(host, "noaccess", "pass1");
+        using (userClient)
+        await using (userStream)
+        {
+            await FrameCodec.WriteMessageAsync(userStream, MessageType.Open,
+                new Open(Guid.NewGuid().ToString("D"), userSession, "/secret-dir", 0));
+            var ex = await Assert.ThrowsAsync<DfsException>(() =>
+                FrameCodec.ReadMessageAsync<OpenResponse>(userStream, MessageType.OpenResponse));
+            Assert.Equal(ErrorCode.Forbidden, ex.Code);
+        }
+    }
+
+    [Fact]
+    public async Task CommitUpload_FileDeletedMidFlight_ReturnsConflictWithZeroCurrentVersion()
+    {
+        await _store.SubmitAsync(new RegisterDataServer("ds-1", "127.0.0.1:7001", 100000, 100000, DateTime.UtcNow));
+        var host = await StartHostAsync(new RbacAuthorizer(_store));
+
+        var credService = new UserCredentialService(_store);
+        await credService.CreateUserAsync("u-writer", "writer", "pass1", DateTime.UtcNow);
+
+        var (adminClient, adminStream, adminSession) = await ConnectAndLoginAsync(host);
+        using (adminClient)
+        await using (adminStream)
+        {
+            await FrameCodec.WriteMessageAsync(adminStream, MessageType.CreateFolder,
+                new MessageCreateFolder(Guid.NewGuid().ToString("D"), adminSession, "/work"));
+            var folderRes = await FrameCodec.ReadMessageAsync<CreateFolderResponse>(adminStream, MessageType.CreateFolderResponse);
+            Assert.NotNull(folderRes);
+
+            var createRes = await SendCreateUploadAsync(adminStream, adminSession, "/work/doc.txt", 2, 0);
+            var shaV1 = Convert.ToHexStringLower(SHA256.HashData("v1"u8));
+            await FrameCodec.WriteMessageAsync(adminStream, MessageType.CommitUpload,
+                new CommitUploadRequest(Guid.NewGuid().ToString("D"), adminSession, createRes.UploadId,
+                    new ValueList<ChecksumInfo>([new ChecksumInfo(createRes.Chunks[0].ChunkId, 2, shaV1)])));
+            var commitRes = await FrameCodec.ReadMessageAsync<CommitUploadResponse>(adminStream, MessageType.CommitUploadResponse);
+            Assert.NotNull(commitRes);
+
+            // Grant Editor only on the file (not item.create on /work)
+            await _store.SubmitAsync(new SetGrant("g-writer-file", BuiltInRoles.EditorId, SubjectType.User, "u-writer", commitRes.Item.Id, DateTime.UtcNow));
+        }
+
+        // Writer starts v2 upload (baseVersion = 1)
+        var (writerClient, writerStream, writerSession) = await ConnectAndLoginUserAsync(host, "writer", "pass1");
+        using (writerClient)
+        await using (writerStream)
+        {
+            var createV2 = await SendCreateUploadAsync(writerStream, writerSession, "/work/doc.txt", 2, 1);
+
+            // Admin deletes the file before writer commits
+            var (adminClient2, adminStream2, adminSession2) = await ConnectAndLoginAsync(host);
+            using (adminClient2)
+            await using (adminStream2)
+            {
+                await FrameCodec.WriteMessageAsync(adminStream2, MessageType.DeleteItem,
+                    new Dfs.Shared.Messages.DeleteItem(Guid.NewGuid().ToString("D"), adminSession2, "/work/doc.txt"));
+                await FrameCodec.ReadMessageAsync<DeleteItemResponse>(adminStream2, MessageType.DeleteItemResponse);
+            }
+
+            // Writer commits -> must receive Conflict (currentVersion = 0), not Forbidden
+            var shaV2 = Convert.ToHexStringLower(SHA256.HashData("v2"u8));
+            await FrameCodec.WriteMessageAsync(writerStream, MessageType.CommitUpload,
+                new CommitUploadRequest(Guid.NewGuid().ToString("D"), writerSession, createV2.UploadId,
+                    new ValueList<ChecksumInfo>([new ChecksumInfo(createV2.Chunks[0].ChunkId, 2, shaV2)])));
+            var frame = await FrameCodec.ReadRawFrameAsync(writerStream);
+            Assert.NotNull(frame);
+            Assert.Equal(MessageType.Error, frame.Type);
+            var err = FrameSerialization.DeserializeJson<ErrorResponse>(frame.Payload);
+            Assert.Equal(ErrorCode.Conflict, err.Code);
+            Assert.NotNull(err.Details);
+            Assert.Equal(0, err.Details["currentVersion"].GetInt32());
         }
     }
 

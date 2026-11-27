@@ -128,6 +128,8 @@ public sealed class DfsClientTransferTests : IAsyncDisposable
 
         var downloadedSha = Convert.ToHexStringLower(SHA256.HashData(downloadedBytes));
         Assert.Equal(originalSha, downloadedSha);
+        var audit = await _client.ListAuditAsync();
+        Assert.Contains(audit, entry => entry.Action == nameof(MessageType.CommitUpload) && entry.Allowed);
     }
 
     [Fact]
@@ -318,6 +320,50 @@ public sealed class DfsClientTransferTests : IAsyncDisposable
         Assert.NotNull(err.Details);
         Assert.True(err.Details.TryGetValue("currentVersion", out var currentVerElem));
         Assert.Equal(2, currentVerElem.GetInt32());
+    }
+
+    [Fact]
+    public async Task UploadFileAsync_AbortsUpload_WhenCommitUploadFailsWithConflict()
+    {
+        await InitializeClusterAsync();
+        Assert.NotNull(_client);
+
+        // Concurrent new-file race: while client 1 uploads chunks for /abort-on-conflict.txt (baseVersion 0),
+        // client 2 creates the file first, causing client 1's CommitUpload to fail with Conflict.
+        using var client2 = new DfsClient(new DfsClientOptions
+        {
+            MetadataEndpoints = [$"127.0.0.1:{_metaHost!.BoundPort}"],
+            ConnectTimeout = TimeSpan.FromSeconds(5),
+            RequestTimeout = TimeSpan.FromSeconds(10)
+        });
+        await client2.LoginAsync(_metaConfig.AdminUser, _metaConfig.AdminPassword);
+
+        var raced = false;
+        var progress = new SyncProgress<(long BytesTransferred, long TotalBytes)>(_ =>
+        {
+            if (raced) return;
+            raced = true;
+            client2.UploadFileAsync("/abort-on-conflict.txt", new MemoryStream("winner"u8.ToArray()), baseVersion: 0)
+                .GetAwaiter().GetResult();
+        });
+
+        var ex = await Assert.ThrowsAsync<DfsException>(() =>
+            _client.UploadFileAsync("/abort-on-conflict.txt", new MemoryStream("loser"u8.ToArray()), baseVersion: 0, progress));
+        Assert.Equal(ErrorCode.Conflict, ex.Code);
+
+        // Verify no orphan upload record remains in SQLite
+        using var conn = new Microsoft.Data.Sqlite.SqliteConnection(
+            new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder { DataSource = _metaConfig.DatabasePath, Pooling = false }.ToString());
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT COUNT(*) FROM uploads";
+        var count = Convert.ToInt64(cmd.ExecuteScalar());
+        Assert.Equal(0L, count);
+    }
+
+    private sealed class SyncProgress<T>(Action<T> handler) : IProgress<T>
+    {
+        public void Report(T value) => handler(value);
     }
 
     public async ValueTask DisposeAsync()

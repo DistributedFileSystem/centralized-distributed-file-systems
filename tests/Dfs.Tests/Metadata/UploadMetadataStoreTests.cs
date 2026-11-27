@@ -390,4 +390,37 @@ public sealed class UploadMetadataStoreTests : IDisposable
         Assert.False(res.Success);
         Assert.Equal(ErrorCode.BadRequest, res.Error);
     }
+
+    [Fact]
+    public async Task CommitUpload_ConcurrentNewFileCreation_ReturnsConflictWithCurrentVersion()
+    {
+        await _store.SubmitAsync(new RegisterDataServer("ds-1", "127.0.0.1:7001", 100000, 100000, DateTime.UtcNow));
+
+        var sha = new string('c', 64);
+        Assert.True((await _store.SubmitAsync(new CommandBeginUpload(
+            "up-race-1", "item-race-1", RootId, "concurrent.txt", "user-1", 100, 0, 4096,
+            new ValueList<PlannedChunk>([new PlannedChunk(0, "c-race-1", new ValueList<string>(["127.0.0.1:7001"]))]),
+            DateTime.UtcNow))).Success);
+        Assert.True((await _store.SubmitAsync(new CommandBeginUpload(
+            "up-race-2", "item-race-2", RootId, "concurrent.txt", "user-2", 100, 0, 4096,
+            new ValueList<PlannedChunk>([new PlannedChunk(0, "c-race-2", new ValueList<string>(["127.0.0.1:7001"]))]),
+            DateTime.UtcNow))).Success);
+
+        var firstCommit = await _store.SubmitAsync(new CommandCommitUpload(
+            "up-race-1",
+            new ValueList<ChecksumInfo>([new ChecksumInfo("c-race-1", 100, sha)]),
+            KeepVersions: 5,
+            DateTime.UtcNow));
+        Assert.True(firstCommit.Success);
+
+        var secondCommit = await _store.SubmitAsync(new CommandCommitUpload(
+            "up-race-2",
+            new ValueList<ChecksumInfo>([new ChecksumInfo("c-race-2", 100, sha)]),
+            KeepVersions: 5,
+            DateTime.UtcNow));
+        Assert.False(secondCommit.Success);
+        Assert.Equal(ErrorCode.Conflict, secondCommit.Error);
+        Assert.NotNull(secondCommit.Details);
+        Assert.Equal(1, secondCommit.Details["currentVersion"].GetInt32());
+    }
 }

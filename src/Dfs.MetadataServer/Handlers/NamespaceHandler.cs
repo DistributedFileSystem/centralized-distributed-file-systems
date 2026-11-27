@@ -133,6 +133,13 @@ public sealed class NamespaceHandler
             var decision = await _authorizer.AuthorizeAsync(userId, Permission.ItemList, child.Id, cancellationToken)
                 .ConfigureAwait(false);
             if (decision.Allowed) visible.Add(child);
+            else
+            {
+                var audit = await _store.SubmitAsync(new RecordAudit(userId, nameof(MessageType.ListDir), child.Path,
+                    false, DateTime.UtcNow), cancellationToken).ConfigureAwait(false);
+                if (!audit.Success)
+                    throw new DfsException(audit.Error ?? ErrorCode.Internal, audit.Message ?? "Failed to record audit.");
+            }
         }
         return new ListDirResponse(request.RequestId, new ValueList<ItemInfo>(visible));
     }

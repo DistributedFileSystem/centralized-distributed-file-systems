@@ -112,7 +112,7 @@ public sealed class MetadataStore : IMetadataStore, IDisposable
 
     /// <inheritdoc />
     public Task<IReadOnlyList<AuditEntry>> ListAuditAsync(DateTime? from, DateTime? to, string? userId, int limit, CancellationToken cancellationToken = default) =>
-        Task.FromResult<IReadOnlyList<AuditEntry>>(Array.Empty<AuditEntry>());
+        Read(() => _state.ListAudit(from, to, userId, limit));
 
     /// <summary>Releases the SQLite file.</summary>
     public void Dispose()

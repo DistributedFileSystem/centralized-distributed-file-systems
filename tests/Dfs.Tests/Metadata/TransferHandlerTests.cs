@@ -464,7 +464,7 @@ public sealed class TransferHandlerTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task CommitUpload_FileDeletedMidFlight_ReturnsConflictWithZeroCurrentVersion()
+    public async Task CommitUpload_MissingItemWithNonZeroBaseVersion_ReturnsConflictBeforeItemCreateCheck()
     {
         await _store.SubmitAsync(new RegisterDataServer("ds-1", "127.0.0.1:7001", 100000, 100000, DateTime.UtcNow));
         var host = await StartHostAsync(new RbacAuthorizer(_store));
@@ -472,6 +472,7 @@ public sealed class TransferHandlerTests : IAsyncDisposable
         var credService = new UserCredentialService(_store);
         await credService.CreateUserAsync("u-writer", "writer", "pass1", DateTime.UtcNow);
 
+        string folderId;
         var (adminClient, adminStream, adminSession) = await ConnectAndLoginAsync(host);
         using (adminClient)
         await using (adminStream)
@@ -480,41 +481,26 @@ public sealed class TransferHandlerTests : IAsyncDisposable
                 new MessageCreateFolder(Guid.NewGuid().ToString("D"), adminSession, "/work"));
             var folderRes = await FrameCodec.ReadMessageAsync<CreateFolderResponse>(adminStream, MessageType.CreateFolderResponse);
             Assert.NotNull(folderRes);
-
-            var createRes = await SendCreateUploadAsync(adminStream, adminSession, "/work/doc.txt", 2, 0);
-            var shaV1 = Convert.ToHexStringLower(SHA256.HashData("v1"u8));
-            await FrameCodec.WriteMessageAsync(adminStream, MessageType.CommitUpload,
-                new CommitUploadRequest(Guid.NewGuid().ToString("D"), adminSession, createRes.UploadId,
-                    new ValueList<ChecksumInfo>([new ChecksumInfo(createRes.Chunks[0].ChunkId, 2, shaV1)])));
-            var commitRes = await FrameCodec.ReadMessageAsync<CommitUploadResponse>(adminStream, MessageType.CommitUploadResponse);
-            Assert.NotNull(commitRes);
-
-            // Grant Editor only on the file (not item.create on /work)
-            await _store.SubmitAsync(new SetGrant("g-writer-file", BuiltInRoles.EditorId, SubjectType.User, "u-writer", commitRes.Item.Id, DateTime.UtcNow));
+            folderId = folderRes.Item.Id;
         }
 
-        // Writer starts v2 upload (baseVersion = 1)
+        // Seed an upload record with baseVersion = 1 for an item that no longer exists
+        // (writer has no item.create permission on /work, so CommitUpload must return Conflict, not Forbidden).
+        var uploadId = "up-missing-item";
+        var chunkId = "c-missing-item";
+        Assert.True((await _store.SubmitAsync(new Dfs.Shared.Commands.BeginUpload(
+            uploadId, "item-missing", folderId, "doc.txt", "u-writer", 2, 1, 4096,
+            new ValueList<PlannedChunk>([new PlannedChunk(0, chunkId, new ValueList<string>(["127.0.0.1:7001"]))]),
+            DateTime.UtcNow))).Success);
+
         var (writerClient, writerStream, writerSession) = await ConnectAndLoginUserAsync(host, "writer", "pass1");
         using (writerClient)
         await using (writerStream)
         {
-            var createV2 = await SendCreateUploadAsync(writerStream, writerSession, "/work/doc.txt", 2, 1);
-
-            // Admin deletes the file before writer commits
-            var (adminClient2, adminStream2, adminSession2) = await ConnectAndLoginAsync(host);
-            using (adminClient2)
-            await using (adminStream2)
-            {
-                await FrameCodec.WriteMessageAsync(adminStream2, MessageType.DeleteItem,
-                    new Dfs.Shared.Messages.DeleteItem(Guid.NewGuid().ToString("D"), adminSession2, "/work/doc.txt"));
-                await FrameCodec.ReadMessageAsync<DeleteItemResponse>(adminStream2, MessageType.DeleteItemResponse);
-            }
-
-            // Writer commits -> must receive Conflict (currentVersion = 0), not Forbidden
             var shaV2 = Convert.ToHexStringLower(SHA256.HashData("v2"u8));
             await FrameCodec.WriteMessageAsync(writerStream, MessageType.CommitUpload,
-                new CommitUploadRequest(Guid.NewGuid().ToString("D"), writerSession, createV2.UploadId,
-                    new ValueList<ChecksumInfo>([new ChecksumInfo(createV2.Chunks[0].ChunkId, 2, shaV2)])));
+                new CommitUploadRequest(Guid.NewGuid().ToString("D"), writerSession, uploadId,
+                    new ValueList<ChecksumInfo>([new ChecksumInfo(chunkId, 2, shaV2)])));
             var frame = await FrameCodec.ReadRawFrameAsync(writerStream);
             Assert.NotNull(frame);
             Assert.Equal(MessageType.Error, frame.Type);

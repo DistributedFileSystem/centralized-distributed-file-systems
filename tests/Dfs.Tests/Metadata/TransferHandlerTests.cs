@@ -467,40 +467,48 @@ public sealed class TransferHandlerTests : IAsyncDisposable
     public async Task CommitUpload_MissingItemWithNonZeroBaseVersion_ReturnsConflictBeforeItemCreateCheck()
     {
         await _store.SubmitAsync(new RegisterDataServer("ds-1", "127.0.0.1:7001", 100000, 100000, DateTime.UtcNow));
-        var host = await StartHostAsync(new RbacAuthorizer(_store));
+        var storeWrapper = new MissingItemStore(_store);
+        var host = new MetadataServerHost(_config, storeWrapper, new RbacAuthorizer(storeWrapper));
+        await host.StartAsync();
+        _host = host;
 
         var credService = new UserCredentialService(_store);
         await credService.CreateUserAsync("u-writer", "writer", "pass1", DateTime.UtcNow);
 
-        string folderId;
+        string fileId;
         var (adminClient, adminStream, adminSession) = await ConnectAndLoginAsync(host);
         using (adminClient)
         await using (adminStream)
         {
             await FrameCodec.WriteMessageAsync(adminStream, MessageType.CreateFolder,
                 new MessageCreateFolder(Guid.NewGuid().ToString("D"), adminSession, "/work"));
-            var folderRes = await FrameCodec.ReadMessageAsync<CreateFolderResponse>(adminStream, MessageType.CreateFolderResponse);
-            Assert.NotNull(folderRes);
-            folderId = folderRes.Item.Id;
-        }
+            await FrameCodec.ReadMessageAsync<CreateFolderResponse>(adminStream, MessageType.CreateFolderResponse);
 
-        // Seed an upload record with baseVersion = 1 for an item that no longer exists
-        // (writer has no item.create permission on /work, so CommitUpload must return Conflict, not Forbidden).
-        var uploadId = "up-missing-item";
-        var chunkId = "c-missing-item";
-        Assert.True((await _store.SubmitAsync(new Dfs.Shared.Commands.BeginUpload(
-            uploadId, "item-missing", folderId, "doc.txt", "u-writer", 2, 1, 4096,
-            new ValueList<PlannedChunk>([new PlannedChunk(0, chunkId, new ValueList<string>(["127.0.0.1:7001"]))]),
-            DateTime.UtcNow))).Success);
+            var createRes = await SendCreateUploadAsync(adminStream, adminSession, "/work/doc.txt", 2, 0);
+            var shaV1 = Convert.ToHexStringLower(SHA256.HashData("v1"u8));
+            await FrameCodec.WriteMessageAsync(adminStream, MessageType.CommitUpload,
+                new CommitUploadRequest(Guid.NewGuid().ToString("D"), adminSession, createRes.UploadId,
+                    new ValueList<ChecksumInfo>([new ChecksumInfo(createRes.Chunks[0].ChunkId, 2, shaV1)])));
+            var commitRes = await FrameCodec.ReadMessageAsync<CommitUploadResponse>(adminStream, MessageType.CommitUploadResponse);
+            Assert.NotNull(commitRes);
+            fileId = commitRes.Item.Id;
+
+            await _store.SubmitAsync(new SetGrant("g-writer-file", BuiltInRoles.EditorId, SubjectType.User, "u-writer", fileId, DateTime.UtcNow));
+        }
 
         var (writerClient, writerStream, writerSession) = await ConnectAndLoginUserAsync(host, "writer", "pass1");
         using (writerClient)
         await using (writerStream)
         {
+            var createV2 = await SendCreateUploadAsync(writerStream, writerSession, "/work/doc.txt", 2, 1);
+
+            // Simulate the item disappearing before CommitUpload without deleting the upload record
+            storeWrapper.HiddenItemId = fileId;
+
             var shaV2 = Convert.ToHexStringLower(SHA256.HashData("v2"u8));
             await FrameCodec.WriteMessageAsync(writerStream, MessageType.CommitUpload,
-                new CommitUploadRequest(Guid.NewGuid().ToString("D"), writerSession, uploadId,
-                    new ValueList<ChecksumInfo>([new ChecksumInfo(chunkId, 2, shaV2)])));
+                new CommitUploadRequest(Guid.NewGuid().ToString("D"), writerSession, createV2.UploadId,
+                    new ValueList<ChecksumInfo>([new ChecksumInfo(createV2.Chunks[0].ChunkId, 2, shaV2)])));
             var frame = await FrameCodec.ReadRawFrameAsync(writerStream);
             Assert.NotNull(frame);
             Assert.Equal(MessageType.Error, frame.Type);
@@ -509,6 +517,44 @@ public sealed class TransferHandlerTests : IAsyncDisposable
             Assert.NotNull(err.Details);
             Assert.Equal(0, err.Details["currentVersion"].GetInt32());
         }
+    }
+
+    private sealed class MissingItemStore(IMetadataStore inner) : IMetadataStore
+    {
+        public string? HiddenItemId { get; set; }
+
+        public Task<CommandResult> SubmitAsync(IMetadataCommand command, CancellationToken cancellationToken = default) =>
+            inner.SubmitAsync(command, cancellationToken);
+        public Task<ItemInfo?> FindItemByPathAsync(string path, CancellationToken cancellationToken = default) =>
+            inner.FindItemByPathAsync(path, cancellationToken);
+        public async Task<ItemInfo?> FindItemByIdAsync(string itemId, CancellationToken cancellationToken = default) =>
+            itemId == HiddenItemId ? null : await inner.FindItemByIdAsync(itemId, cancellationToken).ConfigureAwait(false);
+        public Task<IReadOnlyList<ItemInfo>> ListChildrenAsync(string folderId, CancellationToken cancellationToken = default) =>
+            inner.ListChildrenAsync(folderId, cancellationToken);
+        public Task<IReadOnlyList<VersionInfo>> ListVersionsAsync(string itemId, CancellationToken cancellationToken = default) =>
+            inner.ListVersionsAsync(itemId, cancellationToken);
+        public Task<IReadOnlyList<ChunkRecord>> GetVersionChunksAsync(string itemId, int version, CancellationToken cancellationToken = default) =>
+            inner.GetVersionChunksAsync(itemId, version, cancellationToken);
+        public Task<UploadRecord?> FindUploadAsync(string uploadId, CancellationToken cancellationToken = default) =>
+            inner.FindUploadAsync(uploadId, cancellationToken);
+        public Task<UserCredentials?> FindUserByNameAsync(string username, CancellationToken cancellationToken = default) =>
+            inner.FindUserByNameAsync(username, cancellationToken);
+        public Task<UserCredentials?> FindUserByIdAsync(string userId, CancellationToken cancellationToken = default) =>
+            inner.FindUserByIdAsync(userId, cancellationToken);
+        public Task<IReadOnlyList<UserInfo>> ListUsersAsync(CancellationToken cancellationToken = default) =>
+            inner.ListUsersAsync(cancellationToken);
+        public Task<IReadOnlyList<GroupInfo>> ListGroupsAsync(CancellationToken cancellationToken = default) =>
+            inner.ListGroupsAsync(cancellationToken);
+        public Task<IReadOnlyList<RoleInfo>> ListRolesAsync(CancellationToken cancellationToken = default) =>
+            inner.ListRolesAsync(cancellationToken);
+        public Task<IReadOnlyList<GrantInfo>> ListGrantsAsync(string? itemId, string? subjectId, bool systemOnly, CancellationToken cancellationToken = default) =>
+            inner.ListGrantsAsync(itemId, subjectId, systemOnly, cancellationToken);
+        public Task<SessionRecord?> FindSessionAsync(string token, CancellationToken cancellationToken = default) =>
+            inner.FindSessionAsync(token, cancellationToken);
+        public Task<IReadOnlyList<DataServerInfo>> ListDataServersAsync(CancellationToken cancellationToken = default) =>
+            inner.ListDataServersAsync(cancellationToken);
+        public Task<IReadOnlyList<AuditEntry>> ListAuditAsync(DateTime? from, DateTime? to, string? userId, int limit, CancellationToken cancellationToken = default) =>
+            inner.ListAuditAsync(from, to, userId, limit, cancellationToken);
     }
 
     private static async Task<(TcpClient Client, NetworkStream Stream, string Session)> ConnectAndLoginUserAsync(MetadataServerHost host, string username, string password)

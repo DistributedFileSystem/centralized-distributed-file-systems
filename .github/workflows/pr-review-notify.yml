@@ -1,0 +1,92 @@
+name: Notify PR Review
+
+on:
+  pull_request:
+    branches: [develop, main]
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "Pull request number to test review notification"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  send-review-email:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (
+        !github.event.pull_request.draft &&
+        github.event.pull_request.user.login != 'khanhnguyn2709'
+      )
+    runs-on: ubuntu-latest
+    steps:
+      - name: Build notification payload
+        id: meta
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_PR: ${{ inputs.pr_number }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_HEAD: ${{ github.event.pull_request.head.ref }}
+          PR_BASE: ${{ github.event.pull_request.base.ref }}
+          PR_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_ACTION: ${{ github.event.action }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "pr_number=$INPUT_PR" >> "$GITHUB_OUTPUT"
+            {
+              echo "pr_title<<EOF_TITLE"
+              echo "Manual review trigger for PR #$INPUT_PR"
+              echo "EOF_TITLE"
+            } >> "$GITHUB_OUTPUT"
+            echo "pr_author=${GITHUB_ACTOR}" >> "$GITHUB_OUTPUT"
+            echo "pr_head=manual" >> "$GITHUB_OUTPUT"
+            echo "pr_base=develop" >> "$GITHUB_OUTPUT"
+            echo "pr_sha=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+            echo "short_sha=${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
+            echo "pr_url=https://github.com/${GITHUB_REPOSITORY}/pull/$INPUT_PR" >> "$GITHUB_OUTPUT"
+            echo "pr_action=workflow_dispatch" >> "$GITHUB_OUTPUT"
+          else
+            echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+            {
+              echo "pr_title<<EOF_TITLE"
+              echo "$PR_TITLE"
+              echo "EOF_TITLE"
+            } >> "$GITHUB_OUTPUT"
+            echo "pr_author=$PR_AUTHOR" >> "$GITHUB_OUTPUT"
+            echo "pr_head=$PR_HEAD" >> "$GITHUB_OUTPUT"
+            echo "pr_base=$PR_BASE" >> "$GITHUB_OUTPUT"
+            echo "pr_sha=$PR_SHA" >> "$GITHUB_OUTPUT"
+            echo "short_sha=${PR_SHA:0:7}" >> "$GITHUB_OUTPUT"
+            echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
+            echo "pr_action=$PR_ACTION" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Send review notification email
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          subject: "[DFS-PR-REVIEW] PR #${{ steps.meta.outputs.pr_number }}: ${{ steps.meta.outputs.pr_title }} (${{ steps.meta.outputs.short_sha }})"
+          to: thanhtanshadow@gmail.com
+          from: "DFS PR Review Bot <${{ secrets.MAIL_USERNAME }}>"
+          body: |
+            Repository: ${{ github.repository }}
+            PR Number: #${{ steps.meta.outputs.pr_number }}
+            Title: ${{ steps.meta.outputs.pr_title }}
+            Author: ${{ steps.meta.outputs.pr_author }}
+            Action: ${{ steps.meta.outputs.pr_action }}
+            Head Branch: ${{ steps.meta.outputs.pr_head }}
+            Base Branch: ${{ steps.meta.outputs.pr_base }}
+            Commit SHA: ${{ steps.meta.outputs.pr_sha }}
+            PR URL: ${{ steps.meta.outputs.pr_url }}

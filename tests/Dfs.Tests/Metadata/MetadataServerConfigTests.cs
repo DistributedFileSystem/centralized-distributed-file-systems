@@ -9,7 +9,11 @@ public class MetadataServerConfigTests
     public void FromEnvironment_DefaultValues_WhenVariablesAreUnset()
     {
         // Clear variables to ensure defaults apply
-        var vars = new[] { "NODE_ROLE", "NODE_ID", "LISTEN_PORT", "ADVERTISE_HOST", "METADATA_ENDPOINTS", "DATA_DIR", "TOKEN_KEY", "ADMIN_USER", "ADMIN_PASSWORD" };
+        var vars = new[]
+        {
+            "NODE_ROLE", "NODE_ID", "LISTEN_PORT", "ADVERTISE_HOST", "METADATA_ENDPOINTS",
+            "DATA_DIR", "TOKEN_KEY", "ADMIN_USER", "ADMIN_PASSWORD", "SNAPSHOT_INTERVAL_OPS",
+        };
         var originals = vars.ToDictionary(v => v, Environment.GetEnvironmentVariable);
         try
         {
@@ -27,6 +31,8 @@ public class MetadataServerConfigTests
             Assert.Equal("admin", config.AdminUser);
             Assert.Equal(Path.Combine("data", "metadata.db"), config.DatabasePath);
             Assert.Equal(Path.Combine("data", "oplog.jsonl"), config.OpLogPath);
+            Assert.Equal(Path.Combine("data", "snapshots"), config.SnapshotDir);
+            Assert.Equal(MetadataServerConfig.DefaultSnapshotIntervalOps, config.SnapshotIntervalOps);
         }
         finally
         {
@@ -37,7 +43,11 @@ public class MetadataServerConfigTests
     [Fact]
     public void FromEnvironment_CustomValues_ParsedCorrectly()
     {
-        var vars = new[] { "NODE_ROLE", "NODE_ID", "LISTEN_PORT", "ADVERTISE_HOST", "METADATA_ENDPOINTS", "DATA_DIR", "TOKEN_KEY", "ADMIN_USER", "ADMIN_PASSWORD" };
+        var vars = new[]
+        {
+            "NODE_ROLE", "NODE_ID", "LISTEN_PORT", "ADVERTISE_HOST", "METADATA_ENDPOINTS",
+            "DATA_DIR", "TOKEN_KEY", "ADMIN_USER", "ADMIN_PASSWORD", "SNAPSHOT_INTERVAL_OPS",
+        };
         var originals = vars.ToDictionary(v => v, Environment.GetEnvironmentVariable);
         try
         {
@@ -50,6 +60,7 @@ public class MetadataServerConfigTests
             Environment.SetEnvironmentVariable("TOKEN_KEY", "super-secret-hmac-key");
             Environment.SetEnvironmentVariable("ADMIN_USER", "sysadmin");
             Environment.SetEnvironmentVariable("ADMIN_PASSWORD", "topsecret");
+            Environment.SetEnvironmentVariable("SNAPSHOT_INTERVAL_OPS", "25");
 
             var config = MetadataServerConfig.FromEnvironment();
 
@@ -62,6 +73,8 @@ public class MetadataServerConfigTests
             Assert.Equal("super-secret-hmac-key", config.TokenKey);
             Assert.Equal("sysadmin", config.AdminUser);
             Assert.Equal("topsecret", config.AdminPassword);
+            Assert.Equal(Path.Combine("/var/dfs/metadata", "snapshots"), config.SnapshotDir);
+            Assert.Equal(25, config.SnapshotIntervalOps);
         }
         finally
         {
@@ -87,5 +100,40 @@ public class MetadataServerConfigTests
             Environment.SetEnvironmentVariable("LISTEN_PORT", original);
         }
     }
-}
 
+    [Fact]
+    public void FromEnvironment_SnapshotIntervalOpsZero_DisablesAutoSnapshot()
+    {
+        var original = Environment.GetEnvironmentVariable("SNAPSHOT_INTERVAL_OPS");
+        try
+        {
+            Environment.SetEnvironmentVariable("SNAPSHOT_INTERVAL_OPS", "0");
+            var config = MetadataServerConfig.FromEnvironment();
+            Assert.Equal(0, config.SnapshotIntervalOps);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("SNAPSHOT_INTERVAL_OPS", original);
+        }
+    }
+
+    [Theory]
+    [InlineData("not-a-number")]
+    [InlineData("-1")]
+    [InlineData("-100")]
+    [InlineData("12.5")]
+    public void FromEnvironment_InvalidSnapshotIntervalOps_FallsBackToDefault(string invalidValue)
+    {
+        var original = Environment.GetEnvironmentVariable("SNAPSHOT_INTERVAL_OPS");
+        try
+        {
+            Environment.SetEnvironmentVariable("SNAPSHOT_INTERVAL_OPS", invalidValue);
+            var config = MetadataServerConfig.FromEnvironment();
+            Assert.Equal(MetadataServerConfig.DefaultSnapshotIntervalOps, config.SnapshotIntervalOps);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("SNAPSHOT_INTERVAL_OPS", original);
+        }
+    }
+}

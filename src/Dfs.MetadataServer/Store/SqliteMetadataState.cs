@@ -47,6 +47,30 @@ internal sealed class SqliteMetadataState : IDisposable
     /// <summary>Gets the seq of the last applied op log line.</summary>
     public long AppliedSeq() => (long)Scalar("SELECT seq FROM applied_seq WHERE id = 1")!;
 
+    /// <summary>Creates a consistent point-in-time SQLite backup at <paramref name="destinationPath"/> using the SQLite Backup API.</summary>
+    public void BackupTo(string destinationPath)
+    {
+        var dir = Path.GetDirectoryName(Path.GetFullPath(destinationPath));
+        if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+
+        using (var checkpoint = _db.CreateCommand())
+        {
+            checkpoint.CommandText = "PRAGMA wal_checkpoint(TRUNCATE);";
+            checkpoint.ExecuteNonQuery();
+        }
+
+        var destConnStr = new SqliteConnectionStringBuilder
+        {
+            DataSource = destinationPath,
+            Pooling = false,
+        }.ToString();
+
+        using var dest = new SqliteConnection(destConnStr);
+        dest.Open();
+        _db.BackupDatabase(dest);
+        dest.Close();
+    }
+
     /// <summary>Checks a command against the current state; returns a failed result or null when it is acceptable.</summary>
     public CommandResult? Validate(IMetadataCommand command) => command switch
     {

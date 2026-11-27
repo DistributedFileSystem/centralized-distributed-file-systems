@@ -1,3 +1,4 @@
+using Dfs.MetadataServer.Config;
 using Dfs.Shared.Commands;
 using Dfs.Shared.Messages;
 using Dfs.Shared.Metadata;
@@ -12,13 +13,56 @@ public sealed class MetadataStore : IMetadataStore, IDisposable
     private readonly object _gate = new();
     private readonly OpLog _log;
     private readonly SqliteMetadataState _state;
+    private readonly int _snapshotIntervalOps;
+    private int _opsSinceSnapshot;
+    private bool _disposed;
 
-    /// <summary>Initializes a new instance of the <see cref="MetadataStore"/> class and replays op log lines newer than the SQLite state.</summary>
+    /// <summary>Directory where snapshot files (<c>snapshot.db</c> and <c>snapshot.meta.json</c>) are stored.</summary>
+    public string SnapshotDirectory { get; }
+
+    /// <summary>Gets the sequence number of the last applied op log entry.</summary>
+    public long AppliedSeq
+    {
+        get
+        {
+            lock (_gate) return _state.AppliedSeq();
+        }
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="MetadataStore"/> class, restoring from a valid snapshot
+    /// when needed and replaying op log lines newer than the SQLite state.
+    /// </summary>
     /// <param name="opLogPath">Path of <c>oplog.jsonl</c>.</param>
     /// <param name="sqlitePath">Path of the SQLite file.</param>
-    public MetadataStore(string opLogPath, string sqlitePath)
+    /// <param name="snapshotDir">Optional snapshot directory; defaults to <c>snapshots</c> alongside <paramref name="sqlitePath"/>.</param>
+    /// <param name="snapshotIntervalOps">Number of applied operations between automatic snapshots (0 disables).</param>
+    public MetadataStore(
+        string opLogPath,
+        string sqlitePath,
+        string? snapshotDir = null,
+        int snapshotIntervalOps = MetadataServerConfig.DefaultSnapshotIntervalOps)
     {
+        SnapshotDirectory = string.IsNullOrWhiteSpace(snapshotDir)
+            ? Path.Combine(Path.GetDirectoryName(Path.GetFullPath(sqlitePath))!, "snapshots")
+            : Path.GetFullPath(snapshotDir);
+        _snapshotIntervalOps = Math.Max(0, snapshotIntervalOps);
+
         _log = OpLog.Open(opLogPath, out var entries);
+        var validSnapshot = SnapshotManager.TryLoadValidSnapshot(SnapshotDirectory, _log.LastSeq);
+
+        var existingSeq = SnapshotManager.TryReadSqliteSeq(sqlitePath);
+        if (File.Exists(sqlitePath) && (existingSeq is null || existingSeq.Value > _log.LastSeq))
+        {
+            SnapshotManager.DeleteSqliteFiles(sqlitePath);
+            existingSeq = null;
+        }
+
+        if (validSnapshot is not null && (existingSeq is null || existingSeq.Value < validSnapshot.LastSeq))
+        {
+            SnapshotManager.RestoreSnapshot(validSnapshot.DbPath, sqlitePath);
+        }
+
         _state = new SqliteMetadataState(sqlitePath);
         try
         {
@@ -29,6 +73,17 @@ public sealed class MetadataStore : IMetadataStore, IDisposable
         {
             _state.Dispose();
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Takes an atomic point-in-time snapshot of the current SQLite metadata state and returns its <c>lastSeq</c>.
+    /// </summary>
+    public long TakeSnapshot()
+    {
+        lock (_gate)
+        {
+            return TakeSnapshotLocked();
         }
     }
 
@@ -44,6 +99,19 @@ public sealed class MetadataStore : IMetadataStore, IDisposable
             if (rejected is not null) return Task.FromResult(rejected);
             var seq = _log.Append(command);
             _state.Apply(seq, command);
+            _opsSinceSnapshot++;
+            if (_snapshotIntervalOps > 0 && _opsSinceSnapshot >= _snapshotIntervalOps)
+            {
+                try
+                {
+                    TakeSnapshotLocked();
+                }
+                catch
+                {
+                    // Command is already durably committed in op log and SQLite; do not fail caller or brick subsequent writes.
+                    _opsSinceSnapshot = 0;
+                }
+            }
             return Task.FromResult(CommandResult.Ok(seq));
         }
     }
@@ -119,8 +187,18 @@ public sealed class MetadataStore : IMetadataStore, IDisposable
     {
         lock (_gate)
         {
+            if (_disposed) return;
+            _disposed = true;
             _state.Dispose();
         }
+    }
+
+    private long TakeSnapshotLocked()
+    {
+        var lastSeq = _state.AppliedSeq();
+        SnapshotManager.WriteSnapshot(_state, SnapshotDirectory, lastSeq);
+        _opsSinceSnapshot = 0;
+        return lastSeq;
     }
 
     private Task<T> Read<T>(Func<T> read)

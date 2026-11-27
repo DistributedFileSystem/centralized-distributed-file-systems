@@ -31,6 +31,7 @@ Mỗi laptop vừa là storage node vừa là user: mỗi thành viên đăng nh
 | `DATA_DIR` | Thư mục (Docker volume) cho SQLite hoặc chunk | `/data` |
 | `TOKEN_KEY` | Secret HMAC chung, lấy từ file env, không commit | — |
 | `ADMIN_USER`, `ADMIN_PASSWORD` | Admin đầu tiên, chỉ dùng lần khởi động đầu | — |
+| `SNAPSHOT_INTERVAL_OPS` | Số command giữa các lần snapshot định kỳ (`0` = tắt tự động; shutdown vẫn snapshot nếu có dữ liệu) | `100` |
 
 > **Lỗi hay gặp nhất:** Data Server đăng ký bằng IP nội bộ Docker (ví dụ `172.18.0.3`). Client ở laptop khác không kết nối được. Luôn đặt `ADVERTISE_HOST` = IP LAN của laptop.
 

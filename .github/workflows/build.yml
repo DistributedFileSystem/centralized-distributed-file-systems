@@ -20,6 +20,8 @@ jobs:
       - run: dotnet restore Dfs.sln
       - run: dotnet build Dfs.sln --no-restore -c Release
       - run: dotnet test tests/Dfs.Tests/Dfs.Tests.csproj --no-build -c Release
+      - name: Run deploy verification tests
+        run: python3 -m unittest discover -s tests/deploy -p 'test_*.py' -v
 
   acceptance-tests:
     runs-on: ubuntu-latest

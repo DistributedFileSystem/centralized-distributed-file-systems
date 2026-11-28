@@ -69,10 +69,10 @@ Windows (PowerShell, chạy **Run as Administrator**):
 Linux (`ufw`):
 
 ```bash
-sudo ./deploy/scripts/open-firewall.sh
+sudo bash deploy/scripts/open-firewall.sh
 # Xem trước lệnh hoặc gỡ rule:
-./deploy/scripts/open-firewall.sh --dry-run
-sudo ./deploy/scripts/open-firewall.sh --remove
+bash deploy/scripts/open-firewall.sh --dry-run
+sudo bash deploy/scripts/open-firewall.sh --remove
 ```
 
 ### 3. Build tại máy và khởi động node
@@ -96,7 +96,7 @@ Windows (PowerShell):
 Linux / macOS:
 
 ```bash
-./deploy/scripts/smoke-test.sh
+bash deploy/scripts/smoke-test.sh
 ```
 
 Có thể truyền danh sách endpoint tùy chỉnh với `--targets` (Linux) hoặc `-Targets` (Windows). Script trả về exit code `0` khi tất cả endpoint đều `PASS`, ngược lại trả về `1`.

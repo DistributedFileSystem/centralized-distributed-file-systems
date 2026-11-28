@@ -74,19 +74,26 @@ for raw_port in "${RAW_PORTS[@]}"; do
 done
 
 if [[ "$DRY_RUN" -eq 0 ]]; then
-  if ! command -v ufw >/dev/null 2>&1 && [[ ! -x /usr/sbin/ufw ]] && [[ ! -x /sbin/ufw ]]; then
+  UFW_BIN=""
+  if command -v ufw >/dev/null 2>&1; then
+    UFW_BIN="$(command -v ufw)"
+  elif [[ -x /usr/sbin/ufw ]]; then
+    UFW_BIN="/usr/sbin/ufw"
+  elif [[ -x /sbin/ufw ]]; then
+    UFW_BIN="/sbin/ufw"
+  else
     echo "Error: 'ufw' is not installed. Install ufw or configure your firewall manually." >&2
     exit 1
   fi
   if [[ "$EUID" -ne 0 ]]; then
     if command -v sudo >/dev/null 2>&1; then
-      UFW_CMD=(sudo ufw)
+      UFW_CMD=(sudo "$UFW_BIN")
     else
       echo "Error: Root privileges are required to modify ufw rules." >&2
       exit 1
     fi
   else
-    UFW_CMD=(ufw)
+    UFW_CMD=("$UFW_BIN")
   fi
 fi
 

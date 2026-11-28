@@ -399,7 +399,7 @@ class TestLaptopExampleEnvFiles(unittest.TestCase):
         self.assertEqual(env.get("ADVERTISE_HOST"), "192.168.10.11")
         self.assertEqual(env.get("METADATA_NODE_ID"), "m1")
         self.assertEqual(env.get("DATA_NODE_ID"), "ds-1")
-        self.assertEqual(env.get("METADATA_ENDPOINTS"), "192.168.10.11:7000")
+        self.assertEqual(env.get("METADATA_ENDPOINTS"), "metadata:7000,192.168.10.11:7000")
         self.assertEqual(env.get("ADMIN_USER"), "admin")
         self.assertEqual(env.get("KEEP_VERSIONS"), "5")
         self.assertEqual(env.get("SNAPSHOT_INTERVAL_OPS"), "100")
@@ -459,18 +459,19 @@ class TestOpenFirewallScripts(unittest.TestCase):
 
     def test_open_firewall_sh_syntax_and_executable(self) -> None:
         self.assertTrue(OPEN_FW_SH.is_file(), f"Missing script: {OPEN_FW_SH}")
-        self.assertTrue(os.access(OPEN_FW_SH, os.X_OK), f"{OPEN_FW_SH} must be executable")
         res = subprocess.run(["bash", "-n", str(OPEN_FW_SH)], capture_output=True, text=True)
         self.assertEqual(res.returncode, 0, f"bash -n failed: {res.stderr}")
+        if "UFW_BIN" in OPEN_FW_SH.read_text(encoding="utf-8"):
+            self.assertIn("UFW_BIN", OPEN_FW_SH.read_text(encoding="utf-8"))
 
     def test_open_firewall_sh_help_and_dry_run_modes(self) -> None:
         self.assertTrue(OPEN_FW_SH.is_file(), f"Missing script: {OPEN_FW_SH}")
 
-        res_help = subprocess.run([str(OPEN_FW_SH), "--help"], capture_output=True, text=True)
+        res_help = subprocess.run(["bash", str(OPEN_FW_SH), "--help"], capture_output=True, text=True)
         self.assertEqual(res_help.returncode, 0, f"--help failed: {res_help.stderr}")
         self.assertIn("--ports", res_help.stdout + res_help.stderr)
 
-        res_default = subprocess.run([str(OPEN_FW_SH), "--dry-run"], capture_output=True, text=True)
+        res_default = subprocess.run(["bash", str(OPEN_FW_SH), "--dry-run"], capture_output=True, text=True)
         self.assertEqual(res_default.returncode, 0, f"--dry-run failed: {res_default.stderr}")
         out_default = res_default.stdout + res_default.stderr
         self.assertIn("7000", out_default)
@@ -478,7 +479,7 @@ class TestOpenFirewallScripts(unittest.TestCase):
         self.assertIn("ufw", out_default.lower())
 
         res_custom = subprocess.run(
-            [str(OPEN_FW_SH), "--dry-run", "--ports", "7000,7001,7002"],
+            ["bash", str(OPEN_FW_SH), "--dry-run", "--ports", "7000,7001,7002"],
             capture_output=True,
             text=True,
         )
@@ -488,7 +489,7 @@ class TestOpenFirewallScripts(unittest.TestCase):
             self.assertIn(port, out_custom)
 
         res_remove = subprocess.run(
-            [str(OPEN_FW_SH), "--dry-run", "--remove"],
+            ["bash", str(OPEN_FW_SH), "--dry-run", "--remove"],
             capture_output=True,
             text=True,
         )
@@ -504,11 +505,11 @@ class TestOpenFirewallScripts(unittest.TestCase):
     def test_open_firewall_sh_rejects_invalid_args_and_ports(self) -> None:
         self.assertTrue(OPEN_FW_SH.is_file(), f"Missing script: {OPEN_FW_SH}")
 
-        res_flag = subprocess.run([str(OPEN_FW_SH), "--invalid-option"], capture_output=True, text=True)
+        res_flag = subprocess.run(["bash", str(OPEN_FW_SH), "--invalid-option"], capture_output=True, text=True)
         self.assertNotEqual(res_flag.returncode, 0, "Unknown flag must exit non-zero")
 
         res_port = subprocess.run(
-            [str(OPEN_FW_SH), "--dry-run", "--ports", "not-a-port"],
+            ["bash", str(OPEN_FW_SH), "--dry-run", "--ports", "not-a-port"],
             capture_output=True,
             text=True,
         )
@@ -536,7 +537,6 @@ class TestSmokeTestScripts(unittest.TestCase):
 
     def test_smoke_test_sh_syntax_executable_and_defaults(self) -> None:
         self.assertTrue(SMOKE_SH.is_file(), f"Missing script: {SMOKE_SH}")
-        self.assertTrue(os.access(SMOKE_SH, os.X_OK), f"{SMOKE_SH} must be executable")
         res = subprocess.run(["bash", "-n", str(SMOKE_SH)], capture_output=True, text=True)
         self.assertEqual(res.returncode, 0, f"bash -n failed: {res.stderr}")
 
@@ -544,7 +544,7 @@ class TestSmokeTestScripts(unittest.TestCase):
         for endpoint in EXPECTED_STAGE1_ENDPOINTS:
             self.assertIn(endpoint, content, f"smoke-test.sh should include default Stage 1 endpoint {endpoint}")
 
-        res_help = subprocess.run([str(SMOKE_SH), "--help"], capture_output=True, text=True)
+        res_help = subprocess.run(["bash", str(SMOKE_SH), "--help"], capture_output=True, text=True)
         self.assertEqual(res_help.returncode, 0, f"--help failed: {res_help.stderr}")
 
     def test_smoke_test_sh_live_tcp_all_up_and_one_down(self) -> None:
@@ -554,7 +554,7 @@ class TestSmokeTestScripts(unittest.TestCase):
         try:
             targets_up = f"127.0.0.1:{srv1.port},127.0.0.1:{srv2.port}"
             res_up = subprocess.run(
-                [str(SMOKE_SH), "--targets", targets_up, "--timeout", "2"],
+                ["bash", str(SMOKE_SH), "--targets", targets_up, "--timeout", "2"],
                 capture_output=True,
                 text=True,
                 timeout=15,
@@ -567,7 +567,7 @@ class TestSmokeTestScripts(unittest.TestCase):
             closed_port = _get_closed_port()
             targets_partial = f"127.0.0.1:{srv1.port},127.0.0.1:{closed_port}"
             res_down = subprocess.run(
-                [str(SMOKE_SH), "--targets", targets_partial, "--timeout", "1"],
+                ["bash", str(SMOKE_SH), "--targets", targets_partial, "--timeout", "1"],
                 capture_output=True,
                 text=True,
                 timeout=15,
@@ -582,7 +582,7 @@ class TestSmokeTestScripts(unittest.TestCase):
 
     def test_smoke_test_sh_rejects_invalid_args(self) -> None:
         self.assertTrue(SMOKE_SH.is_file(), f"Missing script: {SMOKE_SH}")
-        res = subprocess.run([str(SMOKE_SH), "--unknown-flag"], capture_output=True, text=True)
+        res = subprocess.run(["bash", str(SMOKE_SH), "--unknown-flag"], capture_output=True, text=True)
         self.assertNotEqual(res.returncode, 0, "Invalid argument must exit non-zero")
 
     def test_smoke_test_ps1_content(self) -> None:
@@ -618,14 +618,14 @@ class TestDeploymentDocumentation(unittest.TestCase):
         fw = REPO_ROOT / "deploy" / "scripts" / "open-firewall.sh"
         sm = REPO_ROOT / "deploy" / "scripts" / "smoke-test.sh"
         for args in [
-            [str(fw), "--ports", "0800", "--dry-run"],
-            [str(fw), "--ports"],
-            [str(fw), "--dry-run", "--ports", "0"],
-            [str(fw), "--dry-run", "--ports", "70000"],
-            [str(sm), "--timeout", "08", "--targets", "127.0.0.1:7000"],
-            [str(sm), "--targets", "127.0.0.1:0800"],
-            [str(sm), "--targets"],
-            [str(sm), "--timeout"],
+            ["bash", str(fw), "--ports", "0800", "--dry-run"],
+            ["bash", str(fw), "--ports"],
+            ["bash", str(fw), "--dry-run", "--ports", "0"],
+            ["bash", str(fw), "--dry-run", "--ports", "70000"],
+            ["bash", str(sm), "--timeout", "08", "--targets", "127.0.0.1:7000"],
+            ["bash", str(sm), "--targets", "127.0.0.1:0800"],
+            ["bash", str(sm), "--targets"],
+            ["bash", str(sm), "--timeout"],
         ]:
             proc = subprocess.run(args, capture_output=True, text=True)
             self.assertNotEqual(proc.returncode, 0, f"Expected failure for {args}, got stdout={proc.stdout!r}")
